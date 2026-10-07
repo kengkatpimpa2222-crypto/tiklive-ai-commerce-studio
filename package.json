@@ -1,0 +1,27 @@
+{
+  "name": "tiklive-ai-commerce-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Windows desktop studio where a disclosed AI virtual character hosts TikTok LIVE product sales.",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "desktop": "pnpm --filter @tlai/desktop start",
+    "package:win": "pnpm --filter @tlai/desktop package:win"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9",
+    "@types/node": "^22.10.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "electron"
+    ]
+  }
+}

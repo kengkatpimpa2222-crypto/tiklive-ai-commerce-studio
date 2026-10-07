@@ -1,0 +1,194 @@
+/** Emotions the virtual host can express. Kept small so every one has a clear face. */
+export const EMOTIONS = ["neutral", "happy", "excited", "thinking", "surprised", "calm", "apologetic"] as const;
+export type Emotion = (typeof EMOTIONS)[number];
+
+export const GESTURES = [
+  "none",
+  "wave",
+  "point_product",
+  "nod",
+  "open_palms",
+  "count_fingers",
+  "thumbs_up",
+  "heart_hands",
+  "think_chin",
+] as const;
+export type Gesture = (typeof GESTURES)[number];
+
+export const SCENE_KINDS = ["intro", "product", "promo", "qa", "break", "outro"] as const;
+export type SceneKind = (typeof SCENE_KINDS)[number];
+
+export type SpeechSource = "script" | "pitch" | "promo" | "qa" | "disclosure" | "system";
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description: string;
+  price: number;
+  compareAtPrice?: number;
+  stock: number;
+  imageUrl?: string;
+  category: string;
+  /** Verified selling points. The host only states facts that appear here or in description/specs. */
+  highlights: string[];
+  /** Verified spec facts, e.g. { "ขนาด": "250 ml" }. Used to ground Q&A answers. */
+  specs: Record<string, string>;
+  status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+}
+
+export interface Promotion {
+  id: string;
+  title: string;
+  /** Exactly what may be said on air, e.g. "ซื้อ 2 ชิ้น ลด 10%". */
+  detail: string;
+  productIds: string[];
+  startsAt?: string;
+  endsAt?: string;
+  active: boolean;
+}
+
+export interface Scene {
+  id: string;
+  name: string;
+  kind: SceneKind;
+  /** CSS background (color, gradient or url()). */
+  background: string;
+  showProductCard: boolean;
+  showPromoBanner: boolean;
+  showCaptions: boolean;
+}
+
+export interface VoiceConfig {
+  provider: "browser" | "openai";
+  /** Browser voice name or remote voice id. */
+  voice: string;
+  lang: string;
+  rate: number;
+  pitch: number;
+}
+
+export interface HostCharacter {
+  id: string;
+  name: string;
+  /** Always shown on stage. Cannot be blank; compliance rejects it. */
+  disclosureLabel: string;
+  persona: string;
+  politeParticle: "ค่ะ" | "ครับ";
+  voice: VoiceConfig;
+  look: {
+    skin: string;
+    hair: string;
+    eyes: string;
+    outfit: string;
+    accent: string;
+  };
+}
+
+export interface SpeechSegment {
+  id: string;
+  text: string;
+  emotion: Emotion;
+  gesture: Gesture;
+  /** Natural pause after this sentence. */
+  pauseAfterMs: number;
+  source: SpeechSource;
+  productId?: string;
+}
+
+export type ScriptStep =
+  | { kind: "say"; text: string; emotion?: Emotion; gesture?: Gesture }
+  | { kind: "show_product"; productId: string }
+  | { kind: "pitch_product"; productId: string }
+  | { kind: "read_promo"; promotionId: string }
+  | { kind: "scene"; sceneId: string }
+  | { kind: "pause"; ms: number }
+  | { kind: "qa_window"; maxQuestions: number };
+
+export interface LiveScript {
+  id: string;
+  title: string;
+  steps: ScriptStep[];
+  /** When the script ends: loop it, stop, or keep chatting about the current product. */
+  onEnd: "loop" | "stop" | "free_talk";
+}
+
+export interface ViewerQuestion {
+  id: string;
+  text: string;
+  /** Display name typed by the operator or delivered by an approved API. Never scraped. */
+  author?: string;
+  source: "manual" | "official_api";
+  receivedAt: string;
+  status: "pending" | "answered" | "skipped" | "blocked";
+  answer?: string;
+}
+
+export type LiveStatus = "DRAFT" | "READY" | "LIVE" | "ENDED";
+
+export type LiveEventType =
+  | "started"
+  | "ended"
+  | "spoke"
+  | "scene"
+  | "product_shown"
+  | "promo_read"
+  | "question"
+  | "answer"
+  | "blocked_text"
+  | "disclosure"
+  | "manual_stat";
+
+export interface LiveEvent {
+  at: string;
+  type: LiveEventType;
+  productId?: string;
+  text?: string;
+  data?: Record<string, number | string>;
+}
+
+export interface LiveSession {
+  id: string;
+  title: string;
+  characterId: string;
+  scriptId?: string;
+  productIds: string[];
+  status: LiveStatus;
+  startedAt?: string;
+  endedAt?: string;
+  /** Figures the seller copies from TikTok LIVE Studio / Seller Center after the stream. */
+  manualStats: { peakViewers?: number; orders?: number; gmv?: number; likes?: number };
+  events: LiveEvent[];
+}
+
+export interface LiveSummary {
+  sessionId: string;
+  durationMinutes: number;
+  sentencesSpoken: number;
+  disclosures: number;
+  questionsReceived: number;
+  questionsAnswered: number;
+  blockedTexts: number;
+  productAirtime: { productId: string; name: string; mentions: number; secondsOnScreen: number }[];
+  topQuestions: string[];
+  manualStats: LiveSession["manualStats"];
+  narrative: string;
+  suggestions: string[];
+}
+
+/** Messages sent from the API to the stage window (OBS Browser Source or Electron window). */
+export type StageCommand =
+  | { type: "speak"; segment: SpeechSegment }
+  | { type: "stop_speaking" }
+  | { type: "scene"; scene: Scene }
+  | { type: "product"; product: Product | null; promotions: Promotion[] }
+  | { type: "character"; character: HostCharacter }
+  | { type: "question"; question: ViewerQuestion | null }
+  | { type: "emotion"; emotion: Emotion }
+  | { type: "gesture"; gesture: Gesture };
+
+/** Messages sent from the stage back to the API. */
+export type StageReport =
+  | { type: "hello"; role: "stage" | "preview" | "control" }
+  | { type: "speech_started"; segmentId: string }
+  | { type: "speech_done"; segmentId: string };

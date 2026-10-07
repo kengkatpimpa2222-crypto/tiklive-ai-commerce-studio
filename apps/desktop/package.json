@@ -1,0 +1,30 @@
+{
+  "name": "@tlai/desktop",
+  "productName": "TikLive AI Commerce Studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI virtual live seller studio for TikTok LIVE (official channels only).",
+  "main": "out/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "node build.mjs && electron .",
+    "package:win": "node build.mjs && electron-builder --win nsis --x64"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tlai/api": "workspace:*",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0"
+  },
+  "build": {
+    "appId": "studio.tiklive.ai-commerce",
+    "productName": "TikLive AI Commerce Studio",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "package.json"],
+    "extraResources": [{ "from": "../studio/dist", "to": "studio" }, { "from": "../../.env.example", "to": ".env.example" }],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}

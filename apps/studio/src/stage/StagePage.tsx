@@ -1,0 +1,150 @@
+import { AvatarController, type AvatarFrame } from "@tlai/avatar";
+import { formatBaht, type HostCharacter, type Product, type Promotion, type Scene, type StageCommand, type ViewerQuestion } from "@tlai/shared";
+import { useEffect, useRef, useState } from "react";
+import { connect } from "../lib/api";
+import { Avatar } from "./Avatar";
+import { SpeechEngine } from "./speech";
+
+const DEFAULT_CHARACTER: HostCharacter = {
+  id: "default", name: "AI Host", disclosureLabel: "AI Virtual Host · ผู้ดำเนินรายการเป็นตัวละคร AI", persona: "", politeParticle: "ค่ะ",
+  voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1, pitch: 1 },
+  look: { skin: "#f3cfb3", hair: "#2a1b17", eyes: "#3a2418", outfit: "#ff4f7b", accent: "#ffd166" },
+};
+
+/**
+ * The on-air picture (1080×1920). Load it in OBS as a Browser Source
+ * (http://127.0.0.1:4417/#/stage, "Control audio via OBS" on) or open it from the
+ * desktop app, then send OBS to TikTok LIVE Studio / an official stream key.
+ */
+export function StagePage() {
+  const preview = location.hash.includes("preview");
+  const [character, setCharacter] = useState<HostCharacter>(DEFAULT_CHARACTER);
+  const [scene, setScene] = useState<Scene | null>(null);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [promos, setPromos] = useState<Promotion[]>([]);
+  const [caption, setCaption] = useState("");
+  const [question, setQuestion] = useState<ViewerQuestion | null>(null);
+  const [frame, setFrame] = useState<AvatarFrame | null>(null);
+  const [needsClick, setNeedsClick] = useState(false);
+  const ctl = useRef(new AvatarController(Math.floor(Math.random() * 1e6)));
+  const speech = useRef(new SpeechEngine(preview));
+  const charRef = useRef(character);
+  charRef.current = character;
+
+  // Animation loop
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    const loop = (t: number) => {
+      setFrame(ctl.current.update(Math.min(64, t - last)));
+      last = t;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Commands from the director
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+    let captionTimer = 0;
+    const link = connect(preview ? "preview" : "stage", (cmd: StageCommand) => {
+      const c = ctl.current;
+      switch (cmd.type) {
+        case "character":
+          setCharacter(cmd.character);
+          break;
+        case "scene":
+          setScene(cmd.scene);
+          break;
+        case "product":
+          setProduct(cmd.product);
+          setPromos(cmd.promotions);
+          break;
+        case "question":
+          setQuestion(cmd.question);
+          break;
+        case "emotion":
+          c.setEmotion(cmd.emotion, 4000);
+          break;
+        case "gesture":
+          c.playGesture(cmd.gesture);
+          break;
+        case "stop_speaking":
+          speech.current.stop();
+          c.stopSpeech();
+          break;
+        case "speak": {
+          const seg = cmd.segment;
+          clearTimeout(captionTimer);
+          setCaption(seg.text);
+          c.setEmotion(seg.emotion);
+          if (seg.source !== "qa") setQuestion(null);
+          speech.current
+            .speak(seg, charRef.current, {
+              onStart: (v, d) => {
+                c.startSpeech(v, d);
+                if (seg.gesture !== "none") setTimeout(() => c.playGesture(seg.gesture), 180);
+              },
+              onAmplitude: (a) => c.setAmplitude(a),
+              onDuration: (d) => c.setSpeechDuration(d),
+              onEnd: () => {
+                c.stopSpeech();
+                if (!preview) link.send({ type: "speech_done", segmentId: seg.id });
+                captionTimer = window.setTimeout(() => setCaption(""), 2500);
+              },
+            })
+            .catch(() => setNeedsClick(true));
+          break;
+        }
+      }
+    });
+    return () => link.close();
+  }, []);
+
+  const promo = promos[0];
+  return (
+    <div className="stage" style={{ background: scene?.background ?? "linear-gradient(160deg,#ffe3ec,#fff1c9)" }} onClick={() => setNeedsClick(false)}>
+      <div className="stage-canvas">
+        {frame && <Avatar frame={frame} character={character} />}
+
+        {/* Disclosure is always on screen and cannot be hidden from the UI. */}
+        <div className="disclosure">
+          <span className="dot" /> {character.disclosureLabel || DEFAULT_CHARACTER.disclosureLabel}
+        </div>
+        <div className="host-name">{character.name}</div>
+
+        {(scene?.showPromoBanner ?? true) && promo && (
+          <div className="promo-banner">
+            <b>{promo.title}</b> {promo.detail}
+          </div>
+        )}
+
+        {question && (
+          <div className="question-bubble">
+            <small>{question.author ? `${question.author} ถามว่า` : "คำถามจากผู้ชม"}</small>
+            {question.text}
+          </div>
+        )}
+
+        {(scene?.showProductCard ?? true) && product && (
+          <div className="product-card">
+            {product.imageUrl ? <img src={product.imageUrl} alt="" /> : <div className="ph">{product.name.slice(0, 2)}</div>}
+            <div className="pc-body">
+              <div className="pc-name">{product.name}</div>
+              <div className="pc-price">
+                {formatBaht(product.price)}
+                {product.compareAtPrice && <s>{formatBaht(product.compareAtPrice)}</s>}
+              </div>
+              {product.stock === 0 && <div className="pc-oos">สินค้าหมดชั่วคราว</div>}
+              <div className="pc-cta">กดตะกร้าสินค้าเพื่อสั่งซื้อ</div>
+            </div>
+          </div>
+        )}
+
+        {(scene?.showCaptions ?? true) && caption && <div className="caption">{caption}</div>}
+        {needsClick && <div className="click-hint">คลิกหนึ่งครั้งเพื่อเปิดเสียง</div>}
+      </div>
+    </div>
+  );
+}
