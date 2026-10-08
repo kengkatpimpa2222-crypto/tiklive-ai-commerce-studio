@@ -59,6 +59,7 @@ export const characterInput = z.object({
         width: z.number().int().positive(),
         height: z.number().int().positive(),
         landmarks: z.array(z.number()).length(478 * 3),
+        hands: z.array(z.array(z.number()).length(21 * 3)).max(2).optional(),
         consent: z.literal(true, { errorMap: () => ({ message: "ต้องยืนยันสิทธิ์ในการใช้รูปและความยินยอมของบุคคลในรูป" }) }),
       })
       .optional(),

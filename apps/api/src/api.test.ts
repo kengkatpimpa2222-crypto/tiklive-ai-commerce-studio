@@ -224,3 +224,24 @@ describe("AI brain settings", () => {
     await app.close();
   });
 });
+
+describe("restart", () => {
+  it("ends a LIVE left over from a previous run so a new one can start", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const file = join(mkdtempSync(join(tmpdir(), "tlai-")), "studio.json");
+    const first = await buildServer({ dataFile: file });
+    const body = { title: "ไลฟ์", characterId: "char_mint", productIds: ["prod_serum"] };
+    const a = json(await first.app.inject({ method: "POST", url: "/api/live", payload: body }));
+    expect((await first.app.inject({ method: "POST", url: `/api/live/${a.id}/start` })).statusCode).toBe(200);
+    first.store.flush();
+    await first.app.close();
+
+    const second = await buildServer({ dataFile: file });
+    expect(second.store.get("sessions", a.id)!.status).toBe("ENDED");
+    const b = json(await second.app.inject({ method: "POST", url: "/api/live", payload: body }));
+    expect((await second.app.inject({ method: "POST", url: `/api/live/${b.id}/start` })).statusCode).toBe(200);
+    await second.app.close();
+  });
+});

@@ -1,4 +1,5 @@
 import type { AvatarFrame } from "./controller.js";
+import { REST_POSE } from "./gestures.js";
 import { delaunay } from "./delaunay.js";
 import { FACE_MESH_TRIANGLES } from "./faceMeshTriangles.js";
 
@@ -59,6 +60,8 @@ export interface PhotoPose {
   roll: number;
   /** px in image space */
   sway: number;
+  /** 0..1: hands (and whatever they hold) lift a little, as when presenting a product. */
+  lift?: number;
   breath: number;
 }
 
@@ -97,6 +100,8 @@ export function poseFromFrame(f: AvatarFrame): PhotoPose {
     roll: clamp(f.headRoll * 0.6, -5, 5),
     sway: f.bodySway * 0.3,
     breath: clamp(f.breath, 0, 1),
+    // Any arm gesture of the controller becomes a small lift of the hands in the photo.
+    lift: clamp((Math.abs(f.arms.rightShoulder - REST_POSE.rightShoulder) + Math.abs(f.arms.leftShoulder - REST_POSE.leftShoulder)) / 110, 0, 1),
   };
 }
 
@@ -117,7 +122,11 @@ export interface PhotoRig {
   mouth(pos: Float32Array): { positions: number[]; colors: number[] };
 }
 
-export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, height: number): PhotoRig {
+/**
+ * @param hands MediaPipe hand landmarks (21 points, flattened [x, y, z, ...] in 0..1) for hands
+ *   visible in the photo. Hands and what they hold stay rigid instead of bending with the face.
+ */
+export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, height: number, hands: ArrayLike<number>[] = []): PhotoRig {
   if (landmarks.length < LANDMARK_COUNT * 3) throw new Error("ต้องมีจุดใบหน้า 478 จุด");
   const L = (i: number): [number, number, number] => [landmarks[i * 3]! * width, landmarks[i * 3 + 1]! * height, landmarks[i * 3 + 2]! * width];
 
@@ -155,6 +164,36 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     z.push(depth);
     headW.push(w);
   };
+  // Hands: a padded outline around each hand (so a held product is mostly inside), traced with
+  // vertices so the rigid area has a clean edge.
+  const handPolys = hands
+    .filter((h) => h.length >= 21 * 2)
+    .map((h) => {
+      const raw: [number, number][] = [];
+      const stride = h.length >= 21 * 3 ? 3 : 2;
+      for (let i = 0; i < 21; i++) raw.push([h[i * stride]! * width, h[i * stride + 1]! * height]);
+      const hull = convexHull(raw);
+      const c = [raw.reduce((s, q) => s + q[0], 0) / 21, raw.reduce((s, q) => s + q[1], 0) / 21] as const;
+      const size = Math.max(Math.max(...raw.map((q) => q[0])) - Math.min(...raw.map((q) => q[0])), Math.max(...raw.map((q) => q[1])) - Math.min(...raw.map((q) => q[1])));
+      const poly = hull.map(([x, y]): [number, number] => {
+        const d = Math.hypot(x - c[0], y - c[1]) || 1;
+        return [x + ((x - c[0]) / d) * size * 0.22, y + ((y - c[1]) / d) * size * 0.22];
+      });
+      return { poly, size };
+    });
+  const handVerts = new Set<number>();
+  for (const { poly, size } of handPolys) {
+    for (let k = 0; k < poly.length; k++) {
+      const a = poly[k]!;
+      const b = poly[(k + 1) % poly.length]!;
+      const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (size * 0.18)));
+      for (let t = 0; t < steps; t++) {
+        const before = pts.length;
+        add(a[0] + ((b[0] - a[0]) * t) / steps, a[1] + ((b[1] - a[1]) * t) / steps, 0, face.w * 0.3, size * 0.08);
+        if (pts.length > before) handVerts.add(before);
+      }
+    }
+  }
   for (const [scale, w] of [[1.18, 0.9], [1.45, 0.6], [1.8, 0.3]] as const) {
     for (const p of oval) {
       const x = face.cx + (p[0] - face.cx) * scale;
@@ -217,6 +256,27 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
   }
   for (const i of [...INNER_CORNERS, ...MOUTH_CORNERS]) jawW[i] = 0.5;
   for (const i of BROWS) browW[i] = 1;
+
+  // Hands stay rigid; movement fades out approaching them so nothing tears at the edge.
+  const handW = new Float32Array(n);
+  for (let i = 0; i < n && handPolys.length; i++) {
+    const [x, y] = pts[i]!;
+    let keep = 1;
+    for (const { poly, size } of handPolys) {
+      const inside = handVerts.has(i) || insidePolygon(x, y, poly);
+      const f = inside ? 0 : clamp(distToPolygon(x, y, poly) / (size * 0.35), 0, 1);
+      if (inside) handW[i] = 1;
+      keep = Math.min(keep, f);
+    }
+    if (keep < 1) {
+      headW[i] = headW[i]! * keep;
+      jawW[i] = jawW[i]! * keep;
+      upperLipW[i] = upperLipW[i]! * keep;
+      mouthWideW[i] = mouthWideW[i]! * keep;
+      smileW[i] = smileW[i]! * keep;
+      browW[i] = browW[i]! * keep;
+    }
+  }
 
   // Lid closing vectors: each upper-lid point travels to its lower-lid partner.
   const lid = EYES.map((e) => ({
@@ -283,6 +343,7 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     const cr = Math.cos(roll);
     const sr = Math.sin(roll);
     const breathY = -p.breath * D * 0.03;
+    const liftY = -(p.lift ?? 0) * D * 0.12;
 
     for (let i = 0; i < n; i++) {
       let x = rest[i * 2]!;
@@ -333,6 +394,7 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
       if (!isBorder) {
         x += p.sway * (0.3 + 0.7 * w);
         if (rest[i * 2 + 1]! > forehead[1]) y += breathY * (y > chin[1] ? 1 : 0.6);
+        y += liftY * handW[i]!;
       }
       out[i * 2] = x;
       out[i * 2 + 1] = y;
@@ -374,4 +436,35 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
   }
 
   return { rest, uv, triangles, vertexCount: n, unit: D, faceBox: face, openPhoto, deform, mouth };
+}
+
+/** Convex hull (monotone chain), counter-clockwise. */
+function convexHull(points: [number, number][]): [number, number][] {
+  const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: [number, number][] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: [number, number][] = [];
+  for (const q of [...p].reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+function distToPolygon(x: number, y: number, poly: [number, number][]): number {
+  let best = Infinity;
+  for (let k = 0; k < poly.length; k++) {
+    const [ax, ay] = poly[k]!;
+    const [bx, by] = poly[(k + 1) % poly.length]!;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const t = clamp(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+  }
+  return best;
 }

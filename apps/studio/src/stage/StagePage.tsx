@@ -143,6 +143,7 @@ export function StagePage() {
           <span className="dot" /> {character.disclosureLabel || DEFAULT_CHARACTER.disclosureLabel}
         </div>
         <div className="host-name">{character.name}</div>
+        <SpeakingBadge frame={frame} />
 
         {(scene?.showPromoBanner ?? true) && promo && (
           <div className="promo-banner">
@@ -186,4 +187,29 @@ function fmtLeft(ms: number): string {
   const m = Math.floor((s % 3600) / 60);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${h > 0 ? `${h}:` : ""}${pad(m)}:${pad(s % 60)}`;
+}
+
+/** "AI กำลังพูดขาย" with a voice meter that follows the mouth, shown while the host talks. */
+function SpeakingBadge({ frame }: { frame: AvatarFrame | null }) {
+  const t = performance.now() / 1000;
+  const lastSpoke = useRef(-Infinity);
+  if (frame?.speaking) lastSpoke.current = t;
+  // Stay up through the short pauses between sentences instead of flickering.
+  const on = t - lastSpoke.current < 1.5;
+  const level = frame?.speaking ? 0.45 + 0.55 * Math.min(1, (frame.mouthOpen ?? 0) * 1.4) : 0.15;
+  return (
+    <div className={`speaking-badge${on ? " on" : ""}`} aria-hidden={!on}>
+      <span className="mic">
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">
+          <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z" />
+        </svg>
+      </span>
+      AI กำลังพูดขาย
+      <span className="bars">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <i key={i} style={{ height: `${35 + 65 * level * Math.abs(Math.sin(t * 7 + i * 1.3))}%` }} />
+        ))}
+      </span>
+    </div>
+  );
 }

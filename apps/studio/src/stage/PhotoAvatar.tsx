@@ -46,15 +46,17 @@ interface GlState {
 export function PhotoAvatar({ frame, photo }: { frame: AvatarFrame; photo: PhotoLook }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<GlState | null>(null);
+  /** Smoothed camera push-in while the host gestures (presents a product). */
+  const push = useRef(0);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [loadError, setError] = useState("");
   const { rig, rigError } = useMemo<{ rig: PhotoRig | null; rigError: string }>(() => {
     try {
-      return { rig: buildPhotoRig(photo.landmarks, photo.width, photo.height), rigError: "" };
+      return { rig: buildPhotoRig(photo.landmarks, photo.width, photo.height, photo.hands), rigError: "" };
     } catch (e) {
       return { rig: null, rigError: (e as Error).message };
     }
-  }, [photo.landmarks, photo.width, photo.height]);
+  }, [photo.landmarks, photo.width, photo.height, photo.hands]);
   const error = rigError || loadError;
 
   useEffect(() => {
@@ -145,11 +147,19 @@ export function PhotoAvatar({ frame, photo }: { frame: AvatarFrame; photo: Photo
       c.height = H;
     }
     // Cover the stage, keep the face centred and in the upper third, with a little overscan for sway.
+    // A slow camera breathe (in and out over ~26 s), a slight hand-held drift, and a gentle
+    // push-in while presenting, so the frame feels like a phone filming a person.
+    const pose = poseFromFrame(frame);
+    const t = performance.now() / 1000;
+    push.current += ((pose.lift ?? 0) - push.current) * 0.04;
+    const zoom = 1 + 0.03 * (0.5 - 0.5 * Math.cos((t * 2 * Math.PI) / 26)) + 0.035 * push.current;
     const f = rig.faceBox;
-    const s = Math.max(W / photo.width, H / photo.height, (0.26 * H) / f.h) * 1.03;
-    const ox = Math.min(0, Math.max(W - photo.width * s, W / 2 - f.cx * s));
-    const oy = Math.min(0, Math.max(H - photo.height * s, 0.36 * H - f.cy * s));
-    const pos = rig.deform(poseFromFrame(frame));
+    const s = Math.max(W / photo.width, H / photo.height, (0.26 * H) / f.h) * 1.03 * zoom;
+    const driftX = (Math.sin(t * 0.37) + 0.5 * Math.sin(t * 0.91)) * W * 0.003;
+    const driftY = (Math.sin(t * 0.29 + 1) + 0.5 * Math.sin(t * 0.73)) * H * 0.002;
+    const ox = Math.min(0, Math.max(W - photo.width * s, W / 2 - f.cx * s + driftX));
+    const oy = Math.min(0, Math.max(H - photo.height * s, 0.36 * H - f.cy * s + driftY));
+    const pos = rig.deform(pose);
     const mouth = rig.mouth(pos);
     const { gl } = g;
     gl.viewport(0, 0, W, H);

@@ -77,6 +77,11 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   await app.register(websocket);
 
   const store = new Store(opts.dataFile);
+  // A LIVE left over from a previous run (app closed or crashed mid-live) has no director
+  // behind it any more; end it so it keeps its summary and does not block the next LIVE.
+  for (const s of store.list("sessions")) {
+    if (s.status === "LIVE") store.update("sessions", s.id, { status: "ENDED", endedAt: s.events.at(-1)?.at ?? s.startedAt ?? new Date().toISOString() });
+  }
   const tts = opts.tts ?? new BrowserTtsPlan();
   const tiktok = opts.tiktok ?? new ManualTikTokProvider();
   const stages = new Set<WebSocket>();

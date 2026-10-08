@@ -73,6 +73,25 @@ describe("LiveDirector", () => {
     expect(run.slice(0, stop === -1 ? undefined : stop).filter((seg) => seg.source === "qa").length).toBeGreaterThanOrEqual(3);
   });
 
+  it("drops a slow AI filler line when a question arrives while it is being written", async () => {
+    director.stop();
+    let calls = 0;
+    const slow = { id: "slow", complete: () => (calls++, new Promise<string>((r) => setTimeout(() => r("ประโยคคั่นจาก AI ค่ะ"), 30_000))) };
+    director = new LiveDirector({ store, brain: new HostBrain(slow), send: (c) => sent.push(c), freeTalkAfterMs: 1000, rotateEveryTurns: 0 });
+    director.start(makeSession({ id: "live_slow", scriptId: undefined }));
+    // Wait until the director is waiting on the AI for a filler line.
+    for (let i = 0; i < 400 && calls === 0; i++) await vi.advanceTimersByTimeAsync(250);
+    expect(calls).toBe(1);
+    const before = sent.length;
+    const q = director.addQuestion("ส่งกี่วันคะ", "v", "clipboard");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(store.get("questions", q.id)!.status).toBe("answered");
+    const after = sent.slice(before).flatMap((c) => (c.type === "speak" ? [c.segment] : []));
+    const firstQa = after.findIndex((seg) => seg.source === "qa");
+    expect(firstQa).toBeGreaterThanOrEqual(0);
+    expect(after.slice(0, firstQa).some((seg) => seg.text.includes("ประโยคคั่นจาก AI"))).toBe(false);
+  });
+
   it("does not answer on its own in review mode", async () => {
     director.qaMode = "review";
     director.start(makeSession());

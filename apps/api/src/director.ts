@@ -174,11 +174,12 @@ export class LiveDirector {
     this.emit();
   }
 
-  async pitch(productId: string, priority = true): Promise<void> {
+  async pitch(productId: string, priority = true, filler = false): Promise<void> {
     const p = this.d.store.get("products", productId);
     if (!p) return;
     if (this.currentProductId !== productId) this.showProduct(productId);
     const out = await this.d.brain.pitch(p, this.brainCtx());
+    if (filler && this.questionsWaiting()) return;
     if (out.issues.length) this.log({ type: "blocked_text", productId, text: out.issues.map((i) => i.code).join(",") });
     this.enqueue(annotate(out.text, "pitch", { productId }), priority);
   }
@@ -310,11 +311,14 @@ export class LiveDirector {
         if (every > 0 && turn > 0 && turn % every === 0 && lineup.length > 1) {
           const i = lineup.findIndex((p) => p.id === this.currentProductId);
           const next = lineup[(i + 1) % lineup.length]!;
-          return void this.runAsync(() => this.pitch(next.id, false));
+          return void this.runAsync(() => this.pitch(next.id, false, true));
         }
         const product = this.currentProductId ? this.d.store.get("products", this.currentProductId) : undefined;
         return void this.runAsync(async () => {
           const out = await this.d.brain.freeTalk(product, this.brainCtx());
+          // Writing a line can take a few seconds with an AI provider; questions that came in
+          // meanwhile go first, and this line is dropped rather than wedged between answers.
+          if (this.questionsWaiting()) return;
           this.queue.push(...annotate(out.text, "system", { productId: product?.id }));
         });
         // Uneven gaps sound like someone thinking, not a timer.
@@ -421,6 +425,10 @@ export class LiveDirector {
     this.log({ type: "blocked_text", text: this.lastBlocked });
     this.emit();
     return { ok: false, reason };
+  }
+
+  private questionsWaiting(): boolean {
+    return this.qaMode === "auto" && this.pendingQuestions().length > 0;
   }
 
   private pendingQuestions(): ViewerQuestion[] {

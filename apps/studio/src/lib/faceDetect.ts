@@ -1,6 +1,22 @@
-import type { FaceLandmarker } from "@mediapipe/tasks-vision";
+import type { FaceLandmarker, HandLandmarker } from "@mediapipe/tasks-vision";
 
 let landmarker: Promise<FaceLandmarker> | null = null;
+let handLandmarker: Promise<HandLandmarker> | null = null;
+
+/** Hand finder, so a host holding a product keeps hand and product still while talking. */
+function loadHands(): Promise<HandLandmarker> {
+  handLandmarker ??= (async () => {
+    const { HandLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+    const base = new URL("mediapipe/", document.baseURI).href;
+    const fileset = await FilesetResolver.forVisionTasks(`${base}wasm`);
+    return HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: `${base}hand_landmarker.task`, delegate: "CPU" },
+      runningMode: "IMAGE",
+      numHands: 2,
+    });
+  })();
+  return handLandmarker;
+}
 
 /** MediaPipe Face Landmarker, loaded once from files bundled with the app (works offline). */
 function load(): Promise<FaceLandmarker> {
@@ -22,6 +38,8 @@ export interface DetectedFace {
   height: number;
   /** 478 points flattened [x, y, z, ...] */
   landmarks: number[];
+  /** 21 points per visible hand, flattened the same way. */
+  hands: number[][];
 }
 
 /**
@@ -47,10 +65,20 @@ export async function detectFace(src: string): Promise<DetectedFace> {
   const nose = pts[1]!;
   const off = Math.abs((nose.x - (l.x + r.x) / 2) / (r.x - l.x));
   if (off > 0.18) throw new Error("หน้าหันข้างมากไป ใช้รูปหน้าตรงมองกล้อง");
+  // Hands are optional: if the hand model fails, the face still animates.
+  const hands = await loadHands()
+    .then((h) => h.detect(img).landmarks)
+    .catch(() => []);
+  // A hand over the mouth would move with the lips and smear.
+  const mouth = pts[13]!;
+  const reach = (r.x - l.x) * 0.45;
+  const nearMouth = hands.some((h) => h.some((p) => Math.hypot((p.x - mouth.x) * img.naturalWidth, (p.y - mouth.y) * img.naturalHeight) < reach * img.naturalWidth));
+  if (nearMouth) throw new Error("มือหรือสินค้าบังปากอยู่ ใช้รูปที่ถือสินค้าห่างจากปากเล็กน้อย");
   return {
     width: img.naturalWidth,
     height: img.naturalHeight,
     landmarks: pts.flatMap((p) => [round(p.x), round(p.y), round(p.z)]),
+    hands: hands.slice(0, 2).map((h) => h.flatMap((p) => [round(p.x), round(p.y), round(p.z)])),
   };
 }
 

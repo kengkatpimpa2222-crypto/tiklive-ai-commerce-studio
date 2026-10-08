@@ -55,4 +55,30 @@ describe("photo rig", () => {
     const last = rig.vertexCount - 1; // bottom-right corner of the grid
     expect(turned[last * 2]).toBeCloseTo(rig.rest[last * 2]!, 3);
   });
+
+  it("keeps a hand holding a product next to the face still while the head and mouth move", () => {
+    // A hand beside the right cheek: 21 points on a small grid.
+    const cx = face.landmarks[454 * 3]! + 0.09;
+    const cy = face.landmarks[454 * 3 + 1]! + 0.02;
+    const hand = Array.from({ length: 21 }, (_, k) => [cx + ((k % 5) - 2) * 0.02, cy + (Math.floor(k / 5) - 2) * 0.015, 0]).flat();
+    const r = buildPhotoRig(face.landmarks, face.width, face.height, [hand]);
+    const inHand: number[] = [];
+    for (let i = 0; i < r.vertexCount; i++) {
+      const x = r.rest[i * 2]! / face.width;
+      const yy = r.rest[i * 2 + 1]! / face.height;
+      if (Math.abs(x - cx) < 0.05 && Math.abs(yy - cy) < 0.04) inHand.push(i);
+    }
+    expect(inHand.length).toBeGreaterThan(3);
+    const moved = r.deform({ ...NEUTRAL_PHOTO_POSE, jaw: 1, yaw: 6, pitch: 4, roll: 5, smile: 1 });
+    for (const i of inHand) {
+      expect(Math.abs(moved[i * 2]! - r.rest[i * 2]!)).toBeLessThan(0.5);
+      expect(Math.abs(moved[i * 2 + 1]! - r.rest[i * 2 + 1]!)).toBeLessThan(0.5);
+    }
+    // ...while the same pose turns the face, and presenting lifts the hand as one piece.
+    expect(Math.abs(moved[1 * 2]! - r.rest[1 * 2]!)).toBeGreaterThan(2);
+    const lifted = r.deform({ ...NEUTRAL_PHOTO_POSE, lift: 1 });
+    const dys = inHand.map((i) => lifted[i * 2 + 1]! - r.rest[i * 2 + 1]!);
+    expect(Math.max(...dys)).toBeLessThan(-r.unit * 0.1);
+    expect(Math.max(...dys) - Math.min(...dys)).toBeLessThan(0.5);
+  });
 });

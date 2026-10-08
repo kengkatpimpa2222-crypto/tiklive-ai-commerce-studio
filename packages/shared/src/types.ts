@@ -122,6 +122,8 @@ export interface PhotoLook {
   height: number;
   /** 478 MediaPipe face landmarks, flattened [x, y, z, ...]; x/y in 0..1 of the image, z relative depth. */
   landmarks: number[];
+  /** Hands visible in the photo (21 MediaPipe hand landmarks each, flattened like `landmarks`); they stay still while the face moves. */
+  hands?: number[][];
   /** The uploader confirmed they own the photo or the person in it agreed to this use. */
   consent: true;
 }
