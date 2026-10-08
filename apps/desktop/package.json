@@ -1,7 +1,7 @@
 {
   "name": "@tlai/desktop",
   "productName": "TikLive AI Commerce Studio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "AI virtual live seller studio for TikTok LIVE (official channels only).",
   "main": "out/main.cjs",
@@ -17,7 +17,8 @@
     "@tlai/shared": "workspace:*",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "electron-updater": "6.3.9"
   },
   "build": {
     "appId": "studio.tiklive.ai-commerce",
@@ -41,8 +42,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "signAndEditExecutable": false
     },
@@ -53,10 +53,12 @@
     },
     "npmRebuild": false,
     "asar": true,
-    "portable": {
-      "artifactName": "TikLive-AI-Commerce-Studio-Portable-${version}.exe"
-    },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "kengkatpimpa2222-crypto",
+      "repo": "tiklive-ai-commerce-studio",
+      "releaseType": "release"
+    }
   },
   "author": "TikLive AI Commerce Studio"
 }

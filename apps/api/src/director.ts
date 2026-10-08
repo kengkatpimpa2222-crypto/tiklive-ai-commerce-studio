@@ -80,6 +80,8 @@ export class LiveDirector {
   private qaBetweenSteps = QA_STREAK;
   private lastDisclosureAt = 0;
   private freeTalkTurn = 0;
+  /** Everything said this session (capped), so the host does not repeat itself. */
+  private spoken: { text: string; at: number }[] = [];
   private currentProductId: string | null = null;
   private sceneId: string | null = null;
   private lastBlocked: string | null = null;
@@ -311,15 +313,20 @@ export class LiveDirector {
           return void this.runAsync(() => this.pitch(next.id, false));
         }
         const product = this.currentProductId ? this.d.store.get("products", this.currentProductId) : undefined;
-        const out = this.d.brain.freeTalk(product, this.brainCtx(), turn);
-        this.enqueue(annotate(out.text, "system", { productId: product?.id }), false);
-      }, this.d.freeTalkAfterMs ?? 15_000);
+        return void this.runAsync(async () => {
+          const out = await this.d.brain.freeTalk(product, this.brainCtx());
+          this.queue.push(...annotate(out.text, "system", { productId: product?.id }));
+        });
+        // Uneven gaps sound like someone thinking, not a timer.
+      }, (this.d.freeTalkAfterMs ?? 15_000) * (0.6 + Math.random() * 0.8));
     }
   }
 
   private async runStep(step: NonNullable<LiveScript["steps"][number]>): Promise<void> {
     switch (step.kind) {
       case "say": {
+        // When a script loops, its fixed lines would repeat word for word; skip any said in the last 20 minutes.
+        if (this.saidWithin(step.text, 20 * 60_000)) return;
         const check = this.check(step.text);
         if (!check.ok) return;
         const segs = annotate(step.text, "script", { productId: this.currentProductId ?? undefined });
@@ -363,6 +370,8 @@ export class LiveDirector {
     const check = this.check(seg.text, seg.productId);
     if (!check.ok) return this.pump();
     this.speaking = seg;
+    this.spoken.push({ text: seg.text, at: this.now() });
+    if (this.spoken.length > 200) this.spoken.splice(0, this.spoken.length - 200);
     this.d.send({ type: "speak", segment: seg });
     // If no stage confirms, fall back to the estimated duration so the show never stalls.
     const voice = this.character().voice;
@@ -428,6 +437,14 @@ export class LiveDirector {
     return (id && this.d.store.get("characters", id)) || this.d.store.list("characters")[0]!;
   }
 
+  private saidWithin(text: string, ms: number): boolean {
+    const t = text.replace(/\s+/g, "");
+    const since = this.now() - ms;
+    // Script lines are split into sentences when spoken, so compare against the joined recent speech.
+    const recent = this.spoken.filter((s) => s.at >= since).map((s) => s.text.replace(/\s+/g, "")).join("");
+    return t.length > 0 && recent.includes(t);
+  }
+
   private brainCtx(): BrainContext {
     const s = this.session();
     const all = this.d.store.list("products");
@@ -440,6 +457,8 @@ export class LiveDirector {
       currentProductId: this.currentProductId ?? undefined,
       allowedPrices: allowedPricesFor(all, promotions),
       faqs: this.d.store.list("faqs"),
+      recent: this.spoken.slice(-60).map((s) => s.text),
+      hour: new Date(this.now()).getHours(),
     };
   }
 
@@ -472,6 +491,7 @@ export class LiveDirector {
     this.qaBetweenSteps = QA_STREAK;
     this.lastDisclosureAt = 0;
     this.freeTalkTurn = 0;
+    this.spoken = [];
     this.currentProductId = null;
     this.lastBlocked = null;
   }

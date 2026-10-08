@@ -27,6 +27,9 @@ jobs:
   windows:
     needs: test
     runs-on: windows-latest
+    # A "v*" tag publishes a GitHub Release; installed apps update themselves from it.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,9 +39,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm --filter @tlai/desktop exec electron-builder --win nsis --x64 --publish never
+      - run: pnpm --filter @tlai/desktop exec electron-builder --win nsis --x64 --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: TikLive-AI-Commerce-Studio-Setup
-          path: apps/desktop/release/*.exe
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/latest.yml
           if-no-files-found: error

@@ -8,6 +8,7 @@ import {
 } from "@tlai/compliance";
 import { formatBaht, type FaqEntry, type HostCharacter, type Product, type Promotion } from "@tlai/shared";
 import type { LlmProvider } from "./llm.js";
+import { nextTalk, pitchLines, spaced, voiceOf, type Rng, type TalkKind } from "./variety.js";
 
 export interface BrainContext {
   character: HostCharacter;
@@ -17,6 +18,10 @@ export interface BrainContext {
   allowedPrices: number[];
   /** Shop-wide answers for shipping, payment, returns and similar. */
   faqs?: FaqEntry[];
+  /** Lines spoken recently (newest last); the host avoids repeating them. */
+  recent?: string[];
+  /** Local hour 0-23 for greetings. */
+  hour?: number;
 }
 
 const PRODUCT_FACT_QUESTION = /ราคา|เท่าไ|กี่บาท|โปร|ส่วนลด|ลดไหม|สต็อก|มีของ|ขนาด|ไซซ์|สี|วัสดุ|ส่วนผสม/;
@@ -47,8 +52,6 @@ export interface BrainOutput {
 }
 
 const end = (c: HostCharacter) => c.politeParticle;
-/** "ลด 10%" + "ค่ะ" reads as "ลด 10% ค่ะ" when spoken; Thai text runs straight into the particle. */
-const spaced = (t: string) => (/[a-z0-9%)]$/i.test(t) ? `${t} ` : t);
 const LINEUP_QUESTION = /ขายอะไร|มีอะไรบ้าง|มีสินค้าอะไร|มีของอะไร|มีกี่แบบ|มีกี่อย่าง/;
 const endQ = (c: HostCharacter) => (c.politeParticle === "ค่ะ" ? "นะคะ" : "นะครับ");
 
@@ -90,7 +93,12 @@ function systemPrompt(ctx: BrainContext): string {
  * Every output is compliance-checked and falls back to a safe template.
  */
 export class HostBrain {
-  constructor(private readonly llm?: LlmProvider) {}
+  private readonly rng: Rng;
+  private lastKinds: TalkKind[] = [];
+
+  constructor(private readonly llm?: LlmProvider, opts: { random?: Rng } = {}) {
+    this.rng = opts.random ?? Math.random;
+  }
 
   async pitch(product: Product, ctx: BrainContext): Promise<BrainOutput> {
     const template = this.pitchTemplate(product, ctx);
@@ -135,22 +143,34 @@ export class HostBrain {
     return this.guard(text || template, text ? "llm" : "fallback", ctx, product, template);
   }
 
-  freeTalk(product: Product | undefined, ctx: BrainContext, turn: number): BrainOutput {
-    const c = ctx.character;
-    const lines = product
-      ? [
-          `ใครมีคำถามเกี่ยวกับ${product.name} พิมพ์ถามได้เลย${endQ(c)}`,
-          product.highlights[turn % Math.max(1, product.highlights.length)]
-            ? `ย้ำอีกนิด${end(c)} ${product.name} ${product.highlights[turn % product.highlights.length]}`
-            : `${product.name} ราคา ${formatBaht(product.price)}${end(c)}`,
-          `${product.name} ตอนนี้ราคา ${formatBaht(product.price)} กดดูที่ตะกร้าได้เลย${end(c)}`,
-        ]
-      : [`ใครสนใจสินค้าตัวไหน พิมพ์ชื่อสินค้ามาได้เลย${endQ(c)}`, `ยินดีต้อนรับทุกคนที่เพิ่งเข้ามา${end(c)} ${c.name}เป็นผู้ช่วย AI ของร้าน${end(c)}`];
-    // Every third line, answer a common shop question before anyone has to ask it.
-    const faqs = ctx.faqs ?? [];
-    const faq = faqs.length && turn % 3 === 2 ? faqs[Math.floor(turn / 3) % faqs.length] : undefined;
-    const text = faq ? `เผื่อใครสงสัยเรื่อง${faq.topic}${end(c)} ${faq.answer}` : lines[turn % lines.length]!;
-    return this.guardSync(text, "template", ctx, product, text);
+  /**
+   * One line of in-between talk. Rotates through kinds of content (facts, price,
+   * promos, FAQ, welcomes, invitations to ask) and never repeats a recent line.
+   */
+  async freeTalk(product: Product | undefined, ctx: BrainContext): Promise<BrainOutput> {
+    const recent = ctx.recent ?? [];
+    const talk = nextTalk(
+      { product, lineup: ctx.products.filter((p) => p.status === "ACTIVE"), promos: ctx.promotions, faqs: ctx.faqs ?? [], hour: ctx.hour ?? new Date().getHours() },
+      voiceOf(ctx.character),
+      recent,
+      this.lastKinds,
+      this.rng,
+    );
+    this.lastKinds = [...this.lastKinds, talk.kind].slice(-4);
+    const template = matchParticle(talk.text, ctx.character);
+    // With an LLM, about half the lines are freshly worded; the guard falls back to the template.
+    if (!this.llm || this.rng() < 0.5) return this.guard(template, "template", ctx, product, template);
+    const facts = (product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)).join("\n---\n");
+    const text = await this.llm
+      .complete([
+        { role: "system", content: systemPrompt(ctx) },
+        {
+          role: "user",
+          content: `ข้อมูลสินค้า:\n${facts}\n\nพูดคั่นรายการ 1 ประโยคสั้น ๆ แนวเดียวกับ: "${template}" แต่ใช้คำพูดใหม่ ห้ามซ้ำกับประโยคที่พูดไปแล้วเหล่านี้:\n${recent.slice(-12).join("\n")}`,
+        },
+      ], { temperature: 0.9, maxTokens: 120 })
+      .catch(() => "");
+    return this.guard(text || template, text ? "llm" : "fallback", ctx, product, template);
   }
 
   /**
@@ -171,19 +191,7 @@ export class HostBrain {
   }
 
   pitchTemplate(p: Product, ctx: BrainContext): string {
-    const c = ctx.character;
-    const promos = promosFor(p, ctx.promotions);
-    const parts = [
-      `ตัวต่อไปที่อยากแนะนำ${end(c)} ${p.name}`,
-      p.description,
-      ...p.highlights.slice(0, 3).map((h, i) => (i === 0 ? `จุดเด่นคือ ${h}` : h)),
-      p.compareAtPrice
-        ? `ราคาปกติ ${formatBaht(p.compareAtPrice)} ในไลฟ์นี้ ${formatBaht(p.price)}${end(c)}`
-        : `ราคา ${formatBaht(p.price)}${end(c)}`,
-      ...promos.map((x, i) => `${i === 0 ? "แล้วก็มีโปร" : "อีกโปรคือ"} ${x.title} ${x.detail}`),
-      p.stock > 0 ? `สนใจกดที่ตะกร้าสินค้าได้เลย${end(c)}` : `ตอนนี้สินค้าหมดชั่วคราว${end(c)} กดติดตามร้านไว้เพื่อดูรอบถัดไปได้${end(c)}`,
-    ];
-    return parts.filter(Boolean).join("\n");
+    return pitchLines(p, promosFor(p, ctx.promotions), voiceOf(ctx.character), this.rng).join("\n");
   }
 
   answerTemplate(q: string, p: Product | undefined, ctx: BrainContext): string {

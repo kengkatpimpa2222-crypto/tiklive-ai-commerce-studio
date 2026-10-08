@@ -20,7 +20,8 @@ export function splitSentences(text: string, maxLen = 100): string[] {
   const out: string[] = [];
   for (const raw of marked.split("\u0000")) {
     let s = raw.trim();
-    while (s.length > maxLen) {
+    // Do not leave a tiny tail such as "บาทค่ะ" as its own sentence.
+    while (s.length > maxLen + 20) {
       const cut = s.lastIndexOf(" ", maxLen);
       const at = cut > maxLen / 3 ? cut : maxLen;
       out.push(s.slice(0, at).trim());

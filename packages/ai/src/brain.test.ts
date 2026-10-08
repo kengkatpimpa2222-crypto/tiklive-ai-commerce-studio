@@ -47,11 +47,31 @@ describe("HostBrain with no product on screen", () => {
 });
 
 describe("HostBrain free talk", () => {
-  it("answers a common shop question before anyone asks", () => {
-    const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ร้านจัดส่งภายใน 1-2 วันค่ะ" }];
-    const brain = new HostBrain();
-    expect(brain.freeTalk(product, { ...ctx, faqs }, 2).text).toContain("ร้านจัดส่งภายใน 1-2 วัน");
-    expect(brain.freeTalk(product, { ...ctx, faqs }, 1).text).not.toContain("จัดส่ง");
+  const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ร้านจัดส่งภายใน 1-2 วันค่ะ" }];
+  const seeded = (seed: number) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+  it("does not repeat itself over a long stretch and mixes in shop FAQs", async () => {
+    const brain = new HostBrain(undefined, { random: seeded(42) });
+    const recent: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const out = await brain.freeTalk(product, { ...ctx, faqs, recent, hour: 19 });
+      expect(out.issues).toEqual([]);
+      expect(recent.slice(-20)).not.toContain(out.text);
+      recent.push(out.text);
+    }
+    expect(new Set(recent).size).toBeGreaterThanOrEqual(30);
+    expect(recent.some((t) => t.includes("ร้านจัดส่งภายใน 1-2 วัน"))).toBe(true);
+    expect(recent.some((t) => t.includes("สวัสดีตอนเย็น"))).toBe(true);
+  });
+
+  it("words the same product pitch differently each time", async () => {
+    const brain = new HostBrain(undefined, { random: seeded(7) });
+    const pitches = await Promise.all([1, 2, 3, 4].map(() => brain.pitch(product, ctx)));
+    expect(new Set(pitches.map((p) => p.text)).size).toBe(4);
+    for (const p of pitches) {
+      expect(p.text).toContain("299 บาท");
+      expect(p.issues).toEqual([]);
+    }
   });
 });
 

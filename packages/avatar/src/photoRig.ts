@@ -1,5 +1,6 @@
 import type { AvatarFrame } from "./controller.js";
 import { delaunay } from "./delaunay.js";
+import { FACE_MESH_TRIANGLES } from "./faceMeshTriangles.js";
 
 /**
  * Animates a single portrait photo: MediaPipe's 478 face landmarks plus rings of
@@ -30,6 +31,16 @@ const FOREHEAD = 10;
 const EYE_OUTER = [33, 263];
 
 export const LANDMARK_COUNT = 478;
+
+function insidePolygon(x: number, y: number, poly: readonly (readonly [number, number])[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]!;
+    const [xj, yj] = poly[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 
 export interface PhotoPose {
   /** 0 closed .. 1 wide open */
@@ -99,6 +110,8 @@ export interface PhotoRig {
   /** Interocular distance in px; the unit for every movement. */
   unit: number;
   faceBox: { cx: number; cy: number; w: number; h: number };
+  /** The source photo already shows the inside of the mouth. */
+  openPhoto: boolean;
   deform(pose: PhotoPose): Float32Array;
   /** Dark mouth cavity and teeth for the current (deformed) positions, as coloured triangles. */
   mouth(pos: Float32Array): { positions: number[]; colors: number[] };
@@ -185,6 +198,18 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     const db = Math.min(...BROWS.map((b) => Math.hypot(x - pts[b]![0], y - pts[b]![1]))) / D;
     browW[i] = y < L(168)[1] ? Math.exp(-((db / 0.3) ** 2)) : 0;
   }
+  // Every landmark on a lip (MediaPipe has several rings per lip) moves with that lip,
+  // otherwise the middle rings lag behind and the lip texture smears.
+  const lowerLip = [61, ...LOWER_OUTER, 291, 308, ...[...LOWER_INNER].reverse(), 78].map((i) => pts[i]!);
+  const upperLip = [61, ...UPPER_OUTER, 291, 308, ...[...UPPER_INNER].reverse(), 78].map((i) => pts[i]!);
+  for (let i = 0; i < LANDMARK_COUNT; i++) {
+    const [x, y] = pts[i]!;
+    if (insidePolygon(x, y, lowerLip)) jawW[i] = 1;
+    else if (insidePolygon(x, y, upperLip)) {
+      jawW[i] = 0;
+      upperLipW[i] = 1;
+    }
+  }
   for (const i of [...LOWER_INNER, ...LOWER_OUTER]) jawW[i] = 1;
   for (const i of [...UPPER_INNER, ...UPPER_OUTER]) {
     jawW[i] = 0;
@@ -200,9 +225,43 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     iris: e.iris,
   }));
 
-  // ---- triangles (minus the inner-mouth hole) ----
-  const inner = new Set(INNER_LIP);
-  const tris = delaunay(pts).filter(([a, b, c]) => !(inner.has(a) && inner.has(b) && inner.has(c)));
+  // ---- triangles ----
+  // The face uses MediaPipe's own mesh, which leaves the mouth opening empty; the rest of
+  // the photo (hair, neck, body, background) is a Delaunay mesh around the face outline.
+  const restGap = Math.max(...UPPER_INNER.map((u, k) => pts[LOWER_INNER[k]!]![1] - pts[u]![1]));
+  // A photo that already shows teeth keeps its own mouth (stretched as it opens);
+  // a closed-mouth photo gets a drawn mouth interior behind the opening.
+  const openPhoto = restGap > D * 0.04;
+  const tris: [number, number, number][] = [];
+  for (let i = 0; i < FACE_MESH_TRIANGLES.length; i += 3) tris.push([FACE_MESH_TRIANGLES[i]!, FACE_MESH_TRIANGLES[i + 1]!, FACE_MESH_TRIANGLES[i + 2]!]);
+  const ovalPoly = FACE_OVAL.map((i) => pts[i]!);
+  const outerIdx = [...FACE_OVAL, ...pts.map((_, i) => i).filter((i) => i >= LANDMARK_COUNT)];
+  for (const [a, b, c] of delaunay(outerIdx.map((i) => pts[i]!))) {
+    const [ia, ib, ic] = [outerIdx[a]!, outerIdx[b]!, outerIdx[c]!];
+    const cx = (pts[ia]![0] + pts[ib]![0] + pts[ic]![0]) / 3;
+    const cy = (pts[ia]![1] + pts[ib]![1] + pts[ic]![1]) / 3;
+    if (!insidePolygon(cx, cy, ovalPoly)) tris.push([ia, ib, ic]);
+  }
+  // The face mesh also leaves the eye openings empty; fill them from the photo so the
+  // eyes show, and so a blink folds the lids over them.
+  const fillRing = (ringIdx: number[]) => {
+    const ring = ringIdx.map((i) => pts[i]!);
+    for (const [a, b, c] of delaunay(ring)) {
+      const cx = (ring[a]![0] + ring[b]![0] + ring[c]![0]) / 3;
+      const cy = (ring[a]![1] + ring[b]![1] + ring[c]![1]) / 3;
+      if (insidePolygon(cx, cy, ring)) tris.push([ringIdx[a]!, ringIdx[b]!, ringIdx[c]!]);
+    }
+  };
+  fillRing([33, ...EYES[0]!.upper, 133, ...[...EYES[0]!.lower].reverse()]);
+  fillRing([263, ...EYES[1]!.upper, 362, ...[...EYES[1]!.lower].reverse()]);
+  if (openPhoto) {
+    const ring = INNER_RING.map((i) => pts[i]!);
+    for (const [a, b, c] of delaunay(ring)) {
+      const cx = (ring[a]![0] + ring[b]![0] + ring[c]![0]) / 3;
+      const cy = (ring[a]![1] + ring[b]![1] + ring[c]![1]) / 3;
+      if (insidePolygon(cx, cy, ring)) tris.push([INNER_RING[a]!, INNER_RING[b]!, INNER_RING[c]!]);
+    }
+  }
   const triangles = new Uint16Array(tris.flat());
   const rest = new Float32Array(pts.flat());
   const uv = new Float32Array(pts.flatMap(([x, y]) => [x / width, y / height]));
@@ -212,7 +271,7 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
   const out = new Float32Array(n * 2);
 
   function deform(p: PhotoPose): Float32Array {
-    const jawDrop = p.jaw * D * 0.24;
+    const jawDrop = p.jaw * D * 0.2;
     const upperLift = p.jaw * D * 0.035;
     const wide = p.width * mouthHalfW * 0.5;
     const smileX = p.smile * D * 0.06;
@@ -285,6 +344,7 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     const P = (i: number): [number, number] => [pos[i * 2]!, pos[i * 2 + 1]!];
     const positions: number[] = [];
     const colors: number[] = [];
+    if (openPhoto) return { positions, colors };
     const tri = (a: [number, number], b: [number, number], c: [number, number], ca: number[], cb: number[], cc: number[]) => {
       positions.push(...a, ...b, ...c);
       colors.push(...ca, ...cb, ...cc);
@@ -295,29 +355,23 @@ export function buildPhotoRig(landmarks: ArrayLike<number>, width: number, heigh
     // cavity: fan from the centre of the inner lip ring
     const ring = INNER_RING.map(P);
     const c: [number, number] = [ring.reduce((s, q) => s + q[0], 0) / ring.length, ring.reduce((s, q) => s + q[1], 0) / ring.length];
-    const deep = [0.16, 0.05, 0.06, 1];
-    const edge = [0.3, 0.1, 0.11, 1];
+    const deep = [0.1, 0.02, 0.03, 1];
+    const edge = [0.32, 0.11, 0.12, 1];
     for (let k = 0; k < ring.length; k++) tri(c, ring[k]!, ring[(k + 1) % ring.length]!, deep, edge, edge);
-    // upper teeth hang from the upper inner lip; a hint of lower teeth sits on the lower lip
-    const teeth = (from: number[], to: number[], frac: number, maxH: number, base: number[]) => {
-      const top = from.map(P);
-      const bottom = top.map((q, k) => {
-        const g = Math.abs(P(to[k]!)[1] - q[1]);
-        return [q[0], q[1] + Math.min(g * frac, maxH) * (from === UPPER_INNER ? 1 : -1)] as [number, number];
-      });
-      for (let k = 0; k < top.length - 1; k++) {
-        const fade = (j: number) => {
-          const f = 1 - Math.abs(j / (top.length - 1) - 0.5) * 1.3;
-          return [base[0]! * f + 0.2 * (1 - f), base[1]! * f + 0.08 * (1 - f), base[2]! * f + 0.08 * (1 - f), 1];
-        };
-        tri(top[k]!, top[k + 1]!, bottom[k]!, fade(k), fade(k + 1), fade(k));
-        tri(top[k + 1]!, bottom[k + 1]!, bottom[k]!, fade(k + 1), fade(k + 1), fade(k));
-      }
+    // upper teeth hang from the upper inner lip, darkening toward the corners of the mouth
+    const top = UPPER_INNER.map(P);
+    const bottom = top.map((q, k) => [q[0], q[1] + Math.min(Math.max(0, P(LOWER_INNER[k]!)[1] - q[1]) * 0.42, D * 0.07)] as [number, number]);
+    const shade = (j: number, lower: boolean) => {
+      const f = Math.max(0, 1 - Math.abs(j / (top.length - 1) - 0.5) * 1.6) ** 0.6;
+      const b = lower ? 0.82 : 0.9;
+      return [0.3 + (b - 0.3) * f, 0.1 + (b - 0.04 - 0.1) * f, 0.1 + (b - 0.09 - 0.1) * f, 1];
     };
-    teeth(UPPER_INNER, LOWER_INNER, 0.5, D * 0.075, [0.93, 0.9, 0.85]);
-    teeth(LOWER_INNER, UPPER_INNER, 0.18, D * 0.03, [0.8, 0.76, 0.7]);
+    for (let k = 0; k < top.length - 1; k++) {
+      tri(top[k]!, top[k + 1]!, bottom[k]!, shade(k, false), shade(k + 1, false), shade(k, true));
+      tri(top[k + 1]!, bottom[k + 1]!, bottom[k]!, shade(k + 1, false), shade(k + 1, true), shade(k, true));
+    }
     return { positions, colors };
   }
 
-  return { rest, uv, triangles, vertexCount: n, unit: D, faceBox: face, deform, mouth };
+  return { rest, uv, triangles, vertexCount: n, unit: D, faceBox: face, openPhoto, deform, mouth };
 }

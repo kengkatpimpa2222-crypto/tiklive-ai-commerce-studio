@@ -46,6 +46,17 @@ describe("LiveDirector", () => {
     expect(shown.size).toBe(3);
   });
 
+  it("does not repeat fixed script lines word for word when the script loops", async () => {
+    store.insert("scripts", { id: "s_loop", title: "loop", onEnd: "loop", steps: [{ kind: "say", text: "สวัสดีค่ะ ยินดีต้อนรับเข้าสู่ไลฟ์ของร้าน" }, { kind: "pitch_product", productId: "prod_serum" }] });
+    director.start(makeSession({ scriptId: "s_loop" }));
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    const greetings = spoken().filter((s) => s.text.includes("ยินดีต้อนรับเข้าสู่ไลฟ์ของร้าน"));
+    expect(greetings.length).toBe(1);
+    const pitches = spoken().filter((s) => s.source === "pitch").map((s) => s.text);
+    // Repeated pitches of the same product are worded differently.
+    expect(new Set(pitches).size).toBeGreaterThanOrEqual(12);
+  });
+
   it("answers several viewer questions back-to-back in auto mode", async () => {
     director.start(makeSession());
     await vi.advanceTimersByTimeAsync(30_000);

@@ -1,5 +1,6 @@
 import { buildServer, providersFromEnv, type CaptureState } from "@tlai/api";
 import { parseCopiedComment } from "@tlai/shared";
+import { setupAutoUpdate } from "./updater";
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, Notification, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 let control: BrowserWindow | null = null;
 let stage: BrowserWindow | null = null;
 let quick: BrowserWindow | null = null;
+let updates: { checkNow: () => void } | null = null;
 let server: Awaited<ReturnType<typeof buildServer>>["app"] | null = null;
 
 // ---------- comment capture ----------
@@ -154,6 +156,8 @@ function buildMenu(): void {
           { label: "คัดลอก URL สำหรับ OBS Browser Source", click: () => clipboard.writeText(`${ORIGIN}/#/stage`) },
           { label: "เปิดโฟลเดอร์ข้อมูล", click: () => void shell.openPath(app.getPath("userData")) },
           { type: "separator" },
+          { label: `ตรวจหาอัปเดต (ตอนนี้ ${app.getVersion()})`, click: () => updates?.checkNow() },
+          { type: "separator" },
           { role: "quit", label: "ออก" },
         ],
       },
@@ -196,6 +200,13 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  updates = setupAutoUpdate({
+    isLive: async () => {
+      const r = await server?.inject({ method: "GET", url: "/api/director" });
+      return !!r && (JSON.parse(r.body) as { status: string }).status !== "idle";
+    },
+    window: () => control,
+  });
   buildMenu();
   registerHotkeys();
   openControl();
