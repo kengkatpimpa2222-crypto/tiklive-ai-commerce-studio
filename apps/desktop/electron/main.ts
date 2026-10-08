@@ -1,7 +1,7 @@
 import { buildServer, providersFromEnv, type CaptureState } from "@tlai/api";
 import { parseCopiedComment } from "@tlai/shared";
 import { setupAutoUpdate } from "./updater";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, Notification, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, Notification, powerSaveBlocker, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -131,6 +131,9 @@ function openStage(): void {
   stage.on("page-title-updated", (e) => e.preventDefault());
   void stage.loadURL(`${ORIGIN}/#/stage`);
   stage.on("closed", () => (stage = null));
+  // If the page crashes or hangs, reload it: the director re-sends the current state on reconnect.
+  stage.webContents.on("render-process-gone", () => stage?.webContents.reload());
+  stage.on("unresponsive", () => stage?.webContents.reload());
 }
 
 /** Small always-on-top box that sits next to TikTok LIVE Studio: type a comment, press Enter. */
@@ -211,7 +214,26 @@ app.whenReady().then(async () => {
   registerHotkeys();
   openControl();
   openStage();
+  watchLive();
 });
+
+/**
+ * While a LIVE runs nobody may be at the PC: keep the screen and PC awake, and bring the
+ * stage window back if it was closed by accident (it is what TikTok LIVE Studio captures).
+ */
+function watchLive(): void {
+  let blocker: number | null = null;
+  setInterval(async () => {
+    const r = await server?.inject({ method: "GET", url: "/api/director" }).catch(() => null);
+    const live = !!r && (JSON.parse(r.body) as { status: string }).status !== "idle";
+    if (live && blocker === null) blocker = powerSaveBlocker.start("prevent-display-sleep");
+    if (!live && blocker !== null) {
+      powerSaveBlocker.stop(blocker);
+      blocker = null;
+    }
+    if (live && !stage && control) openStage();
+  }, 5000);
+}
 
 app.on("will-quit", () => globalShortcut.unregisterAll());
 

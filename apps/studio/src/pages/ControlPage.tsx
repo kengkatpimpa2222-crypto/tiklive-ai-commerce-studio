@@ -62,16 +62,20 @@ export function ControlPage() {
     };
   }, []);
   const [form, setForm] = useState({ title: "", characterId: "", scriptId: "", productIds: [] as string[] });
+  const [auto, reloadAuto] = useData<{ active: boolean; endsAt: string | null }>("/autopilot", { active: false, endsAt: null });
+  const [autoMinutes, setAutoMinutes] = useState(60);
 
   useEffect(() => {
     const link = connect("control", (m) => {
       if (m.type === "state") {
         setState(m.state);
         reloadQuestions();
+        reloadAuto();
+        reloadSessions();
       }
     });
     return () => link.close();
-  }, [reloadQuestions]);
+  }, [reloadQuestions, reloadAuto, reloadSessions]);
 
   const live = sessions.find((s) => s.status === "LIVE");
   const current = sessions.find((s) => s.id === (live?.id ?? selected));
@@ -86,6 +90,16 @@ export function ControlPage() {
     }
   };
   const director = (action: string, body: unknown = {}) => run(() => api(`/director/${action}`, { body }));
+
+  /** One button: picks every product on sale, the realistic host if set up, checks, opens the stage and goes live. */
+  const startAutopilot = () =>
+    run(async () => {
+      setPreflight(null);
+      await api("/autopilot", { body: { minutes: autoMinutes } });
+      window.open("#/stage", "_blank");
+      reloadSessions();
+      reloadAuto();
+    }, "เริ่มไลฟ์อัตโนมัติแล้ว AI จะแนะนำสินค้า อ่านโปร และพูดเองจนจบ");
 
   const create = () =>
     run(async () => {
@@ -142,6 +156,32 @@ export function ControlPage() {
     <div className="control">
       <section className="panel session-panel">
         <h2>ไลฟ์</h2>
+        {!live && (
+          <div className="autopilot-card">
+            <b>ไลฟ์อัตโนมัติ กดปุ่มเดียว</b>
+            <p>AI เลือกสินค้าที่เปิดขายทั้งหมด แนะนำทีละชิ้น อ่านโปรเป็นระยะ พูดคั่นเอง ตอบคำถามที่คัดลอกมาเอง และพูดลาแล้วจบไลฟ์เองตามเวลา</p>
+            <div className="row">
+              <select value={autoMinutes} onChange={(e) => setAutoMinutes(Number(e.target.value))}>
+                {[30, 60, 90, 120, 180, 240].map((m) => (
+                  <option key={m} value={m}>
+                    จบเองใน {m >= 60 ? `${m / 60} ชั่วโมง` : `${m} นาที`}
+                  </option>
+                ))}
+                <option value={0}>ไม่กำหนด (กดจบเอง)</option>
+              </select>
+              <button className="primary" onClick={startAutopilot}>
+                เริ่มไลฟ์อัตโนมัติ
+              </button>
+            </div>
+            <small className="muted">กดเริ่มไลฟ์ใน TikTok LIVE Studio ด้วยตัวเอง แล้วเปิดคอมเมนต์ไว้ คัดลอกคำถามลูกค้าเมื่อสะดวก AI จะตอบเอง</small>
+          </div>
+        )}
+        {live && auto.active && (
+          <div className="autopilot-card on">
+            <b>● โหมดอัตโนมัติกำลังทำงาน</b>
+            <p>{auto.endsAt ? `จะพูดลาและจบไลฟ์เองเวลา ${new Date(auto.endsAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : "ไม่กำหนดเวลาจบ กด \"จบไลฟ์\" เมื่อต้องการ"}</p>
+          </div>
+        )}
         {!live && (
           <>
             <label>

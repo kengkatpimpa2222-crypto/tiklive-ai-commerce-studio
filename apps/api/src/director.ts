@@ -50,6 +50,8 @@ export interface DirectorDeps {
   now?: () => number;
   /** Seconds of silence before the host fills with a free-talk line (script onEnd = free_talk). */
   freeTalkAfterMs?: number;
+  /** How often free talk reads the next active promotion (default 8 minutes). */
+  promoEveryMs?: number;
   /** In free talk, pitch the next product after this many filler lines (0 = never rotate). */
   rotateEveryTurns?: number;
 }
@@ -80,6 +82,11 @@ export class LiveDirector {
   private qaBetweenSteps = QA_STREAK;
   private lastDisclosureAt = 0;
   private freeTalkTurn = 0;
+  /** Without a script the host reads the next active promotion every few minutes. */
+  private lastPromoAt = 0;
+  private promoTurn = 0;
+  /** Set by finish(): say goodbye, then call back once everything queued has been spoken. */
+  private onFinished: (() => void) | null = null;
   /** Everything said this session (capped), so the host does not repeat itself. */
   private spoken: { text: string; at: number }[] = [];
   private currentProductId: string | null = null;
@@ -99,6 +106,7 @@ export class LiveDirector {
     this.reset();
     this.sessionId = session.id;
     this.status = "running";
+    this.lastPromoAt = this.now();
     this.script = session.scriptId ? this.d.store.get("scripts", session.scriptId) : undefined;
     const c = this.character();
     this.d.send({ type: "character", character: c });
@@ -283,6 +291,11 @@ export class LiveDirector {
     }
     const next = this.queue.shift();
     if (next) return this.speak(next);
+    if (this.onFinished) {
+      const done = this.onFinished;
+      this.onFinished = null;
+      return done();
+    }
 
     const pending = this.pendingQuestions();
     if (this.qaMode === "auto" && pending.length && (this.qaBudget > 0 || this.qaBetweenSteps > 0)) {
@@ -304,6 +317,13 @@ export class LiveDirector {
     if (!this.script || this.script.onEnd === "free_talk") {
       this.idleTimer = setTimeout(() => {
         this.idleTimer = null;
+        // Promotions come round every few minutes (they are also on screen all along).
+        const promos = this.d.store.list("promotions").filter((p) => p.active);
+        if (promos.length && this.now() - this.lastPromoAt >= (this.d.promoEveryMs ?? 8 * 60_000)) {
+          this.lastPromoAt = this.now();
+          const promo = promos[this.promoTurn++ % promos.length]!;
+          return void this.runAsync(() => this.readPromo(promo.id, false));
+        }
         const turn = this.freeTalkTurn++;
         // Every few lines of free talk, move on to the next product so every item gets airtime.
         const every = this.d.rotateEveryTurns ?? 4;
@@ -453,6 +473,21 @@ export class LiveDirector {
     return t.length > 0 && recent.includes(t);
   }
 
+  /**
+   * Ends the show gracefully: a goodbye line (with the AI disclosure), then `done` once
+   * everything already queued has been said. Questions still waiting stay in the list for the team.
+   */
+  finish(done: () => void): void {
+    if (this.status === "idle") return done();
+    const c = this.character();
+    const text = `ไลฟ์วันนี้ใกล้จบแล้ว${c.politeParticle} ขอบคุณทุกคนที่แวะมาดูนะ${c.politeParticle === "ค่ะ" ? "คะ" : "ครับ"} สินค้ายังสั่งได้ที่ตะกร้าเหมือนเดิม ไลฟ์นี้ดำเนินรายการโดยตัวละคร AI แล้วพบกันใหม่${c.politeParticle}`;
+    this.queue = [];
+    this.enqueue(this.seg(text, "system", { baseEmotion: "happy" }), true);
+    this.onFinished = done;
+    if (this.status === "paused") this.resume();
+    this.pump();
+  }
+
   /** Splits text into speech segments in the current character's energy. */
   private seg(text: string, source: SpeechSegment["source"], opts: Parameters<typeof annotate>[2] = {}): SpeechSegment[] {
     return annotate(text, source, { ...opts, energy: this.character().energy });
@@ -509,6 +544,8 @@ export class LiveDirector {
     this.qaBetweenSteps = QA_STREAK;
     this.lastDisclosureAt = 0;
     this.freeTalkTurn = 0;
+    this.promoTurn = 0;
+    this.onFinished = null;
     this.spoken = [];
     this.currentProductId = null;
     this.lastBlocked = null;

@@ -44,6 +44,7 @@ export interface ServerOptions {
   tts?: TtsProvider;
   tiktok?: TikTokProvider;
   freeTalkAfterMs?: number;
+  promoEveryMs?: number;
   rotateEveryTurns?: number;
   logger?: boolean;
   /** Desktop-only comment capture (clipboard watch + hotkeys), owned by the Electron main process. */
@@ -125,6 +126,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     store,
     brain,
     freeTalkAfterMs: opts.freeTalkAfterMs,
+    promoEveryMs: opts.promoEveryMs,
     rotateEveryTurns: opts.rotateEveryTurns,
     send: (cmd) => {
       if (cmd.type !== "speak" && cmd.type !== "stop_speaking" && cmd.type !== "gesture" && cmd.type !== "emotion" && cmd.type !== "question") lastByType.set(cmd.type, cmd);
@@ -389,6 +391,28 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     if (s.status === "LIVE") return reply.code(409).send({ error: "แก้ไขระหว่างไลฟ์ไม่ได้" });
     return store.update("sessions", s.id, { ...parse(liveSessionInput.partial(), req.body), status: "DRAFT" });
   });
+  let autopilot: { sessionId: string; endsAt: string | null; timer: NodeJS.Timeout | null } | null = null;
+  const autopilotView = () => {
+    const live = autopilot && store.get("sessions", autopilot.sessionId)?.status === "LIVE";
+    return { active: !!live, sessionId: live ? autopilot!.sessionId : null, endsAt: live ? autopilot!.endsAt : null };
+  };
+  const startSession = (s: LiveSession) => {
+    store.update("sessions", s.id, { status: "LIVE", startedAt: new Date().toISOString(), endedAt: undefined, events: [] });
+    s.events.push({ at: s.startedAt!, type: "started" });
+    director.start(s);
+    return store.get("sessions", s.id);
+  };
+  const endSession = (s: LiveSession) => {
+    if (s.status === "LIVE") s.events.push({ at: new Date().toISOString(), type: "ended" });
+    store.update("sessions", s.id, { status: "ENDED", endedAt: s.endedAt ?? new Date().toISOString() });
+    if (director.state().sessionId === s.id) director.stop();
+    if (autopilot?.sessionId === s.id) {
+      if (autopilot.timer) clearTimeout(autopilot.timer);
+      autopilot = null;
+    }
+    store.flush();
+    return store.get("sessions", s.id);
+  };
   const preflightFor = (s: LiveSession) =>
     runPreflight({
       session: s,
@@ -411,19 +435,52 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     if (store.list("sessions").some((x) => x.status === "LIVE" && x.id !== s.id)) return reply.code(409).send({ error: "มีไลฟ์อื่นกำลังดำเนินอยู่" });
     const r = preflightFor(s);
     if (!r.ok) return reply.code(422).send({ error: "ตรวจสอบไม่ผ่าน เริ่มไลฟ์ไม่ได้", preflight: r });
-    store.update("sessions", s.id, { status: "LIVE", startedAt: new Date().toISOString(), endedAt: undefined, events: [] });
-    s.events.push({ at: s.startedAt!, type: "started" });
-    director.start(s);
-    return store.get("sessions", s.id);
+    return startSession(s);
   });
   app.post<{ Params: { id: string } }>("/api/live/:id/end", async (req, reply) => {
     const s = store.get("sessions", req.params.id);
     if (!s) return reply.code(404).send({ error: "not found" });
-    if (s.status === "LIVE") s.events.push({ at: new Date().toISOString(), type: "ended" });
-    store.update("sessions", s.id, { status: "ENDED", endedAt: s.endedAt ?? new Date().toISOString() });
-    if (director.state().sessionId === s.id) director.stop();
-    store.flush();
-    return store.get("sessions", s.id);
+    return endSession(s);
+  });
+
+  // ---- autopilot: one button starts a complete LIVE that runs and ends on its own ----
+  app.get("/api/autopilot", async () => autopilotView());
+  app.post("/api/autopilot", async (req, reply) => {
+    const { minutes, characterId } = parse(z.object({ minutes: z.number().int().min(0).max(720).default(0), characterId: z.string().optional() }), req.body ?? {});
+    if (store.list("sessions").some((x) => x.status === "LIVE")) return reply.code(409).send({ error: "มีไลฟ์กำลังดำเนินอยู่" });
+    const products = store.list("products").filter((p) => p.status === "ACTIVE");
+    if (!products.length) return reply.code(422).send({ error: "ยังไม่มีสินค้าที่เปิดขาย เพิ่มสินค้าก่อน" });
+    const chars = store.list("characters");
+    // The realistic photo host, if one is set up, goes on air; otherwise the first character.
+    const character = (characterId && store.get("characters", characterId)) || chars.find((c) => c.look.style === "photo" && c.look.photo) || chars[0];
+    if (!character) return reply.code(422).send({ error: "ยังไม่มีตัวละคร" });
+    const now = new Date();
+    const s: LiveSession = {
+      id: newId("live"),
+      title: `ไลฟ์อัตโนมัติ ${now.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} ${now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}`,
+      characterId: character.id,
+      productIds: products.map((p) => p.id),
+      status: "DRAFT",
+      manualStats: {},
+      events: [],
+    };
+    store.insert("sessions", s);
+    const r = preflightFor(s);
+    if (!r.ok) {
+      store.remove("sessions", s.id);
+      return reply.code(422).send({ error: "ตรวจสอบไม่ผ่าน เริ่มไลฟ์ไม่ได้", preflight: r });
+    }
+    director.qaMode = "auto";
+    opts.capture?.set({ clipboardWatch: true });
+    startSession(s);
+    autopilot = { sessionId: s.id, endsAt: minutes ? new Date(Date.now() + minutes * 60_000).toISOString() : null, timer: null };
+    if (minutes) {
+      autopilot.timer = setTimeout(() => {
+        const live = store.get("sessions", s.id);
+        if (live?.status === "LIVE") director.finish(() => endSession(live));
+      }, minutes * 60_000);
+    }
+    return reply.code(201).send({ session: store.get("sessions", s.id), ...autopilotView() });
   });
   app.post<{ Params: { id: string } }>("/api/live/:id/stats", async (req, reply) => {
     const s = store.get("sessions", req.params.id);
@@ -514,6 +571,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     reply.code(err.statusCode ?? 500).send({ error: err.message });
   });
   app.addHook("onClose", async () => {
+    if (autopilot?.timer) clearTimeout(autopilot.timer);
     director.stop();
     store.flush();
   });

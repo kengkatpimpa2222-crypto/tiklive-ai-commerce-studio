@@ -274,3 +274,35 @@ describe("product import API", () => {
     expect(r.draft).toMatchObject({ name: "เสื้อยืดโอเวอร์ไซซ์", price: 259, highlights: ["ผ้าคอตตอน 100%"], specs: { ไซซ์: "M, L, XL" } });
   });
 });
+
+describe("autopilot", () => {
+  it("starts a full LIVE with one call, reads promos on its own and ends itself with a goodbye", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const sent: StageCommand[] = [];
+    const built = await buildServer({ dataFile: null, freeTalkAfterMs: 1000, promoEveryMs: 60_000 });
+    const app = built.app;
+    // Record what the stage would receive.
+    const origSend = (built.director as unknown as { d: { send: (c: StageCommand) => void } }).d.send;
+    (built.director as unknown as { d: { send: (c: StageCommand) => void } }).d.send = (c) => (sent.push(c), origSend(c));
+
+    const r = await app.inject({ method: "POST", url: "/api/autopilot", payload: { minutes: 5 } });
+    expect(r.statusCode).toBe(201);
+    const { session, active, endsAt } = json(r);
+    expect(active).toBe(true);
+    expect(endsAt).toBeTruthy();
+    expect(session.productIds.length).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    const said = sent.flatMap((c) => (c.type === "speak" ? [c.segment] : []));
+    expect(said.some((s) => s.source === "promo")).toBe(true);
+    expect(said.some((s) => s.source === "pitch")).toBe(true);
+    expect(built.store.get("sessions", session.id)!.status).toBe("LIVE");
+
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(built.store.get("sessions", session.id)!.status).toBe("ENDED");
+    const last = sent.flatMap((c) => (c.type === "speak" ? [c.segment.text] : [])).join(" ");
+    expect(last).toContain("ขอบคุณทุกคนที่แวะมาดู");
+    expect(json(await app.inject({ method: "GET", url: "/api/autopilot" })).active).toBe(false);
+    await app.close();
+  });
+});

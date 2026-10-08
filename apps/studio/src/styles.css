@@ -204,3 +204,9 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 /* Product import from a link or pasted text */
 .import-card textarea { min-height: 90px; }
 .warn-list { margin: 6px 0; padding-left: 18px; color: var(--warn); font-size: 13px; line-height: 1.5; }
+
+/* One-button autopilot */
+.autopilot-card { margin: 4px 0 12px; padding: 12px; border-radius: 10px; background: linear-gradient(135deg, #1d2a4a, #2a1830); border: 1px solid #44507a; }
+.autopilot-card p { margin: 6px 0; font-size: 13px; line-height: 1.5; }
+.autopilot-card.on { border-color: var(--ok); background: #0f2a20; }
+.autopilot-card select, .autopilot-card .row button { flex: 1 1 100%; }
