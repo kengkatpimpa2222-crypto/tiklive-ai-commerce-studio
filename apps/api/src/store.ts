@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
+import type { AiConfig } from "@tlai/ai";
 import type { FaqEntry, HostCharacter, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
 import { defaultSettings, seedCharacters, seedFaqs, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
 
@@ -13,9 +14,11 @@ export interface Db {
   questions: ViewerQuestion[];
   faqs: FaqEntry[];
   settings: StudioSettings;
+  /** AI provider for the host's speech. Holds the API key, so it is never sent to the stage. */
+  ai?: AiConfig;
 }
 
-export type Collection = Exclude<keyof Db, "settings">;
+export type Collection = Exclude<keyof Db, "settings" | "ai">;
 type Lists = Pick<Db, Collection>;
 
 const seed = (): Db => ({
@@ -76,6 +79,11 @@ export class Store {
     arr.splice(i, 1);
     this.save();
     return true;
+  }
+
+  setAi(cfg: AiConfig): void {
+    this.db.ai = cfg;
+    this.save();
   }
 
   updateStage(patch: Partial<StudioSettings["stage"]>): StudioSettings {

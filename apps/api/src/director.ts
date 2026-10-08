@@ -183,10 +183,10 @@ export class LiveDirector {
     this.enqueue(annotate(out.text, "pitch", { productId }), priority);
   }
 
-  readPromo(promotionId: string, priority = true): void {
+  async readPromo(promotionId: string, priority = true): Promise<void> {
     const promo = this.d.store.get("promotions", promotionId);
     if (!promo || !promo.active) return;
-    const out = this.d.brain.promo(promo, this.brainCtx());
+    const out = await this.d.brain.promo(promo, this.brainCtx());
     this.log({ type: "promo_read", text: promo.title });
     this.enqueue(annotate(out.text, "promo", { productId: this.currentProductId ?? undefined, baseEmotion: "excited" }), priority);
   }
@@ -443,6 +443,11 @@ export class LiveDirector {
     // Script lines are split into sentences when spoken, so compare against the joined recent speech.
     const recent = this.spoken.filter((s) => s.at >= since).map((s) => s.text.replace(/\s+/g, "")).join("");
     return t.length > 0 && recent.includes(t);
+  }
+
+  /** What the host currently knows (lineup, promos, FAQ, recent speech), e.g. for trying out an AI provider. */
+  brainContext(): BrainContext {
+    return this.brainCtx();
   }
 
   private brainCtx(): BrainContext {

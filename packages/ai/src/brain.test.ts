@@ -89,6 +89,28 @@ describe("HostBrain (LLM guarded)", () => {
     const out = await new HostBrain(good).answer("ราคาเท่าไหร่", ctx);
     expect(out.via).toBe("llm");
   });
+  it("composes every free-talk line with the AI, telling it what was said recently", async () => {
+    const prompts: string[] = [];
+    let n = 0;
+    const llm: LlmProvider = { id: "fake", complete: async (m) => (prompts.push(m.at(-1)!.content), `"ประโยคที่คิดเองที่ ${++n} ค่ะ"`) };
+    const brain = new HostBrain(llm);
+    const outs = [];
+    for (let i = 0; i < 6; i++) outs.push(await brain.freeTalk(product, { ...ctx, recent: ["สวัสดีค่ะทุกคน"] }));
+    expect(outs.every((o) => o.via === "llm")).toBe(true);
+    expect(outs[0]!.text).toBe("ประโยคที่คิดเองที่ 1 ค่ะ");
+    expect(prompts[0]).toContain("สวัสดีค่ะทุกคน");
+    expect(prompts[0]).toContain("เรื่องที่จะพูด");
+  });
+  it("words promos and shop FAQ answers itself, and falls back when the AI fails", async () => {
+    const llm: LlmProvider = { id: "fake", complete: async () => "ตอนนี้ซื้อครบ 2 ขวดส่งฟรีเลยค่ะ ดูเงื่อนไขที่ตะกร้านะคะ" };
+    expect((await new HostBrain(llm).promo(promo, ctx)).via).toBe("llm");
+    const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ส่งภายใน 1-2 วันค่ะ" }];
+    expect((await new HostBrain(llm).answer("ส่งกี่วันคะ", { ...ctx, faqs })).via).toBe("llm");
+    const down: LlmProvider = { id: "down", complete: async () => Promise.reject(new Error("x")) };
+    const out = await new HostBrain(down).answer("ส่งกี่วันคะ", { ...ctx, faqs });
+    expect(out.via).toBe("fallback");
+    expect(out.text).toContain("1-2 วัน");
+  });
 });
 
 describe("annotate", () => {

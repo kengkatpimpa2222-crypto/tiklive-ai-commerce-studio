@@ -1,4 +1,5 @@
 import { useHash } from "./lib/useHash";
+import { AiPage } from "./pages/AiPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ControlPage } from "./pages/ControlPage";
@@ -13,6 +14,7 @@ const NAV = [
   ["/catalog", "สินค้าและโปรโมชั่น"],
   ["/shop", "ร้านและหน้าจอ"],
   ["/characters", "ตัวละคร AI"],
+  ["/ai", "สมอง AI"],
   ["/scripts", "สคริปต์"],
   ["/summary", "สรุปผล LIVE"],
 ] as const;
@@ -25,6 +27,8 @@ export function App() {
     <CatalogPage />
   ) : route.startsWith("/shop") ? (
     <ShopPage />
+  ) : route.startsWith("/ai") ? (
+    <AiPage />
   ) : route.startsWith("/characters") ? (
     <CharactersPage />
   ) : route.startsWith("/scripts") ? (

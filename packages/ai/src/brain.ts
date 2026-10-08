@@ -75,17 +75,43 @@ export function productFacts(p: Product, promos: Promotion[]): string {
 
 function systemPrompt(ctx: BrainContext): string {
   const c = ctx.character;
+  const hour = ctx.hour ?? new Date().getHours();
   return [
     `คุณคือ "${c.name}" ตัวละคร AI ที่เป็นพิธีกรขายของใน TikTok LIVE ${c.persona}`,
-    `พูดภาษาไทยเป็นกันเอง สุภาพ ลงท้ายด้วย "${c.politeParticle}" ประโยคสั้น เหมาะกับการพูดออกเสียง ไม่ใช้อีโมจิหรือสัญลักษณ์`,
+    `ตอนนี้เวลาประมาณ ${hour} นาฬิกา`,
+    "วิธีพูด:",
+    `- พูดเหมือนพิธีกรไลฟ์ตัวจริงที่กำลังคุยกับคนดูสด ๆ ใช้ภาษาพูดไทยที่เป็นธรรมชาติ อบอุ่น ลงท้ายด้วย "${c.politeParticle}"`,
+    "- คิดคำพูดเอง เล่าแบบยกตัวอย่างการใช้งานจริง ไม่อ่านข้อมูลเป็นข้อ ๆ และไม่ขึ้นต้นประโยคด้วยคำเดิมซ้ำกับที่เพิ่งพูด",
+    "- ประโยคสั้น เหมาะกับการพูดออกเสียง ตอบเฉพาะคำพูดที่จะพูดออกไป ไม่มีเครื่องหมายคำพูด อีโมจิ สัญลักษณ์ หรือคำอธิบายท่าทาง",
     "กฎที่ห้ามละเมิด:",
     "- คุณเป็น AI ห้ามอ้างว่าเป็นคนจริง ถ้าถูกถามให้ยอมรับตรง ๆ",
     "- พูดเฉพาะข้อมูลสินค้าที่ให้ไว้ ถ้าไม่มีข้อมูล ให้บอกว่าจะให้ทีมงานตรวจสอบ ห้ามเดา",
-    "- ราคาและโปรโมชั่นต้องตรงตามข้อมูลเท่านั้น",
+    "- ราคาและโปรโมชั่นต้องตรงตามข้อมูลเท่านั้น ห้ามพูดตัวเลขราคาที่ไม่มีในข้อมูล",
     "- ห้ามการันตีผลลัพธ์ ห้ามอ้างสรรพคุณทางการแพทย์ ห้ามอ้างจำนวนผู้ชมหรือยอดขาย ห้ามสร้างความเร่งรีบเกินจริง",
     "- ห้ามชวนให้กดไลก์/แชร์/ติดตามแลกของรางวัล หรือเชิญชวนให้คอมเมนต์ซ้ำ ๆ",
   ].join("\n");
 }
+
+/** What a free-talk line should be about, for the LLM to word in its own way. */
+const TALK_TOPIC: Record<TalkKind, string> = {
+  highlight: "เล่าจุดเด่นของสินค้าบนจอสักข้อ ยกตัวอย่างว่าใช้แล้วดียังไงในชีวิตประจำวัน",
+  spec: "บอกรายละเอียดของสินค้าบนจอสักอย่าง (ขนาด วัสดุ สี ฯลฯ) แบบเป็นกันเอง",
+  price: "พูดถึงราคาของสินค้าบนจอ",
+  cta: "ชวนกดตะกร้าแบบสุภาพ ไม่กดดัน",
+  invite: "ชวนคนดูพิมพ์ถามสิ่งที่สงสัย",
+  describe: "เล่าว่าสินค้าบนจอเหมาะกับใคร ใช้ตอนไหน",
+  promo: "เล่าโปรโมชั่นที่มีอยู่ตอนนี้",
+  welcome: "ทักทายคนที่เพิ่งเข้ามาในไลฟ์ตามช่วงเวลา",
+  lineup: "เล่าว่าวันนี้ในไลฟ์มีสินค้าอะไรอีกบ้าง",
+  faq: "เล่าข้อมูลร้านสักเรื่อง เช่น การส่ง การชำระเงิน หรือการเปลี่ยนคืน",
+  assistant: "บอกสั้น ๆ ว่าตัวเองเป็นผู้ช่วย AI ของร้าน พร้อมตอบคำถาม",
+  teaser: "ชวนให้รอดูสินค้าชิ้นถัดไป",
+};
+
+const recentBlock = (ctx: BrainContext, n = 12) => {
+  const r = (ctx.recent ?? []).slice(-n);
+  return r.length ? `\n\nประโยคที่เพิ่งพูดไป (ห้ามพูดซ้ำหรือใช้สำนวนเดิม):\n${r.join("\n")}` : "";
+};
 
 /**
  * The host's "brain": turns catalog facts into speech and answers viewer
@@ -96,8 +122,17 @@ export class HostBrain {
   private readonly rng: Rng;
   private lastKinds: TalkKind[] = [];
 
-  constructor(private readonly llm?: LlmProvider, opts: { random?: Rng } = {}) {
+  constructor(private llm?: LlmProvider, opts: { random?: Rng } = {}) {
     this.rng = opts.random ?? Math.random;
+  }
+
+  /** Switches the AI provider while running (from the settings page); undefined = offline wording. */
+  setLlm(llm: LlmProvider | undefined): void {
+    this.llm = llm;
+  }
+
+  get usesLlm(): boolean {
+    return !!this.llm;
   }
 
   async pitch(product: Product, ctx: BrainContext): Promise<BrainOutput> {
@@ -106,16 +141,30 @@ export class HostBrain {
     const text = await this.llm
       .complete([
         { role: "system", content: systemPrompt(ctx) },
-        { role: "user", content: `แนะนำสินค้านี้ในไลฟ์ ความยาว 4-6 ประโยค จบด้วยการชวนกดตะกร้าอย่างสุภาพ\n${productFacts(product, ctx.promotions)}` },
-      ])
+        {
+          role: "user",
+          content: `ข้อมูลสินค้า:\n${productFacts(product, ctx.promotions)}\n\nแนะนำสินค้านี้ในไลฟ์ด้วยคำพูดของคุณเอง 4-6 ประโยคสั้น ๆ เล่าให้น่าสนใจเหมือนคุยกับเพื่อน จบด้วยการชวนกดตะกร้าอย่างสุภาพ${recentBlock(ctx)}`,
+        },
+      ], { temperature: 0.9, maxTokens: 400 })
       .catch(() => "");
     return this.guard(text || template, text ? "llm" : "fallback", ctx, product, template);
   }
 
-  promo(promo: Promotion, ctx: BrainContext): BrainOutput {
+  async promo(promo: Promotion, ctx: BrainContext): Promise<BrainOutput> {
     const c = ctx.character;
-    const text = `โปรโมชั่นตอนนี้${end(c)} ${promo.title} ${promo.detail} ${promo.endsAt ? `ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")} ` : ""}รายละเอียดเงื่อนไขดูได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
-    return this.guardSync(text, "template", ctx, undefined, `ดูโปรโมชั่นได้ที่ตะกร้าสินค้าเลย${endQ(c)}`);
+    const template = `โปรโมชั่นตอนนี้${end(c)} ${promo.title} ${promo.detail} ${promo.endsAt ? `ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")} ` : ""}รายละเอียดเงื่อนไขดูได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
+    const safe = `ดูโปรโมชั่นได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
+    if (!this.llm) return this.guardSync(template, "template", ctx, undefined, safe);
+    const text = await this.llm
+      .complete([
+        { role: "system", content: systemPrompt(ctx) },
+        {
+          role: "user",
+          content: `โปรโมชั่น: ${promo.title} - ${promo.detail}${promo.endsAt ? ` (ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")})` : ""}\n\nบอกโปรนี้กับคนดูด้วยคำพูดของคุณเอง 2-3 ประโยค ตื่นเต้นแต่ไม่เร่งเร้าเกินจริง บอกว่าดูเงื่อนไขได้ที่ตะกร้า${recentBlock(ctx)}`,
+        },
+      ], { temperature: 0.9, maxTokens: 200 })
+      .catch(() => "");
+    return this.guardSync(text || template, text ? "llm" : "fallback", ctx, undefined, this.guardSync(template, "template", ctx, undefined, safe).text);
   }
 
   async answer(question: string, ctx: BrainContext): Promise<BrainOutput> {
@@ -124,11 +173,8 @@ export class HostBrain {
     const product = this.findProduct(question, ctx);
     const faq = matchFaq(question, ctx.faqs);
     // Shop questions (shipping, payment, returns) are answered from the FAQ unless the viewer asks about product facts.
-    if (faq && !PRODUCT_FACT_QUESTION.test(question)) {
-      const text = matchParticle(faq.answer, c);
-      return this.guard(text, "template", ctx, product, text);
-    }
-    const template = this.answerTemplate(question, product, ctx);
+    const faqOnly = faq && !PRODUCT_FACT_QUESTION.test(question);
+    const template = faqOnly ? matchParticle(faq.answer, c) : this.answerTemplate(question, product, ctx);
     if (!this.llm) return this.guard(template, "template", ctx, product, template);
     const facts = [
       ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
@@ -137,8 +183,11 @@ export class HostBrain {
     const text = await this.llm
       .complete([
         { role: "system", content: systemPrompt(ctx) },
-        { role: "user", content: `ข้อมูลสินค้า:\n${facts}\n\nคำถามจากผู้ชม: "${question}"\nตอบสั้น 1-3 ประโยค ตอบจากข้อมูลข้างบนเท่านั้น` },
-      ], { temperature: 0.3, maxTokens: 200 })
+        {
+          role: "user",
+          content: `ข้อมูลสินค้าและร้าน:\n${facts}\n\nคำถามจากผู้ชม: "${question}"\nตอบคนดูคนนี้ด้วยคำพูดของคุณเอง 1-3 ประโยคสั้น ๆ เป็นกันเอง ตอบจากข้อมูลข้างบนเท่านั้น ถ้าข้อมูลไม่พอให้บอกว่าจะให้ทีมงานตรวจสอบ${recentBlock(ctx, 6)}`,
+        },
+      ], { temperature: 0.5, maxTokens: 220 })
       .catch(() => "");
     return this.guard(text || template, text ? "llm" : "fallback", ctx, product, template);
   }
@@ -158,17 +207,21 @@ export class HostBrain {
     );
     this.lastKinds = [...this.lastKinds, talk.kind].slice(-4);
     const template = matchParticle(talk.text, ctx.character);
-    // With an LLM, about half the lines are freshly worded; the guard falls back to the template.
-    if (!this.llm || this.rng() < 0.5) return this.guard(template, "template", ctx, product, template);
-    const facts = (product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)).join("\n---\n");
+    if (!this.llm) return this.guard(template, "template", ctx, product, template);
+    // With an AI provider the host composes every line itself; the template is only the fallback.
+    const facts = [
+      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
+      ...(talk.kind === "faq" ? (ctx.faqs ?? []).map((f) => `ข้อมูลร้าน (${f.topic}): ${f.answer}`) : []),
+      ...(talk.kind === "lineup" || talk.kind === "teaser" ? [`สินค้าในไลฟ์วันนี้: ${ctx.products.filter((p) => p.status === "ACTIVE").map((p) => p.name).join(", ")}`] : []),
+    ].join("\n---\n");
     const text = await this.llm
       .complete([
         { role: "system", content: systemPrompt(ctx) },
         {
           role: "user",
-          content: `ข้อมูลสินค้า:\n${facts}\n\nพูดคั่นรายการ 1 ประโยคสั้น ๆ แนวเดียวกับ: "${template}" แต่ใช้คำพูดใหม่ ห้ามซ้ำกับประโยคที่พูดไปแล้วเหล่านี้:\n${recent.slice(-12).join("\n")}`,
+          content: `ข้อมูล:\n${facts}\n\nตอนนี้ไม่มีคำถามเข้ามา พูดคั่นรายการ 1-2 ประโยคสั้น ๆ ด้วยคำพูดของคุณเอง\nเรื่องที่จะพูด: ${TALK_TOPIC[talk.kind]}${recentBlock(ctx)}`,
         },
-      ], { temperature: 0.9, maxTokens: 120 })
+      ], { temperature: 1, maxTokens: 160 })
       .catch(() => "");
     return this.guard(text || template, text ? "llm" : "fallback", ctx, product, template);
   }
@@ -233,7 +286,11 @@ export class HostBrain {
   }
 
   private guardSync(text: string, via: BrainOutput["via"], ctx: BrainContext, product: Product | undefined, fallback: string): BrainOutput {
-    const clean = text.replace(/[*_#`>]/g, "").replace(/\p{Extended_Pictographic}/gu, "").trim();
+    const clean = text
+      .replace(/[*_#`>]/g, "")
+      .replace(/\p{Extended_Pictographic}/gu, "")
+      .replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, "")
+      .trim();
     const issues = checkClaims(clean, { product, allowedPrices: ctx.allowedPrices });
     if (!isBlocked(issues) && !deniesBeingAi(clean)) return { text: clean, via, issues };
     const fbIssues = checkClaims(fallback, { product, allowedPrices: ctx.allowedPrices });

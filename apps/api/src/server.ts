@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import { generateScript, HostBrain, OpenAICompatibleLlm, summarizeLive, type LlmProvider } from "@tlai/ai";
+import { AI_PRESETS, createLlm, generateScript, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
 import { summaryCsv, summaryMarkdown } from "./export.js";
 import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
@@ -37,7 +37,10 @@ export interface ServerOptions {
   dataFile: string | null;
   /** Built studio UI to serve at "/" (and "/#/stage" for OBS). */
   staticDir?: string;
+  /** Provider from environment variables; settings saved in the app take precedence. */
   llm?: LlmProvider;
+  /** Test hook for AI provider HTTP calls. */
+  llmFetch?: typeof fetch;
   tts?: TtsProvider;
   tiktok?: TikTokProvider;
   freeTalkAfterMs?: number;
@@ -86,9 +89,36 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const data = JSON.stringify(msg);
     for (const ws of set) if (ws.readyState === 1) ws.send(data);
   };
+  // ---- AI provider for the host's speech (switchable from the settings page) ----
+  const usage = { calls: 0, errors: 0, inputTokens: 0, outputTokens: 0, lastError: null as string | null, since: new Date().toISOString() };
+  const count = (u: LlmUsage) => {
+    usage.inputTokens += u.inputTokens;
+    usage.outputTokens += u.outputTokens;
+  };
+  /** Records calls and the last error so the settings page can show whether the AI is really answering. */
+  const tracked = (inner: LlmProvider | undefined, onError?: (m: string) => void): LlmProvider | undefined =>
+    inner && {
+      id: inner.id,
+      complete: async (m, o) => {
+        try {
+          const text = await inner.complete(m, o);
+          usage.calls++;
+          usage.lastError = null;
+          return text;
+        } catch (e) {
+          usage.errors++;
+          usage.lastError = (e as Error).message;
+          onError?.((e as Error).message);
+          throw e;
+        }
+      },
+    };
+  const activeLlm = () => tracked(store.db.ai ? createLlm(store.db.ai, count, opts.llmFetch) : opts.llm);
+  const brain = new HostBrain(activeLlm());
+
   const director: LiveDirector = new LiveDirector({
     store,
-    brain: new HostBrain(opts.llm),
+    brain,
     freeTalkAfterMs: opts.freeTalkAfterMs,
     rotateEveryTurns: opts.rotateEveryTurns,
     send: (cmd) => {
@@ -209,7 +239,61 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   });
   crud("scripts", "scripts", scriptInput, "script");
 
-  app.get("/api/health", async () => ({ ok: true, llm: opts.llm?.id ?? "offline-templates", tts: tts.id, tiktok: tiktok.id }));
+  // ---- AI brain settings ----
+  const aiInput = z.object({
+    provider: z.enum(["off", "claude", "openai", "gemini", "custom"]),
+    model: z.string().trim().max(200).default(""),
+    baseUrl: z.string().trim().url("ที่อยู่ API ต้องเป็น URL เช่น http://localhost:11434/v1").optional().or(z.literal("")),
+    /** Omitted keeps the saved key; "" removes it. */
+    apiKey: z.string().trim().max(500).optional(),
+  });
+  const merged = (body: z.infer<typeof aiInput>): AiConfig => ({
+    provider: body.provider,
+    model: body.model || (body.provider !== "off" ? AI_PRESETS[body.provider].models[0]?.id ?? "" : ""),
+    baseUrl: body.baseUrl || undefined,
+    apiKey: body.apiKey ?? (store.db.ai?.provider === body.provider ? store.db.ai.apiKey : ""),
+  });
+  const aiView = () => {
+    const cfg = store.db.ai;
+    const key = cfg?.apiKey ?? "";
+    return {
+      provider: cfg?.provider ?? "off",
+      model: cfg?.model ?? "",
+      baseUrl: cfg?.baseUrl ?? "",
+      hasKey: key.length > 0,
+      keyHint: key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : key ? "••••" : "",
+      source: cfg ? (brain.usesLlm ? "settings" : "off") : opts.llm ? "env" : "off",
+      active: brain.usesLlm,
+      usage,
+      presets: AI_PRESETS,
+    };
+  };
+  app.get("/api/ai", async () => aiView());
+  app.put("/api/ai", async (req, reply) => {
+    const cfg = merged(parse(aiInput, req.body));
+    if (cfg.provider !== "off" && !createLlm(cfg)) {
+      return reply.code(400).send({ error: cfg.provider === "custom" ? "ใส่ที่อยู่ API และชื่อโมเดล" : "ใส่ API key ก่อนเปิดใช้" });
+    }
+    store.setAi(cfg);
+    brain.setLlm(activeLlm());
+    usage.lastError = null;
+    return aiView();
+  });
+  /** Asks the AI for one real line about the current lineup, without saving anything. */
+  app.post("/api/ai/test", async (req, reply) => {
+    const cfg = merged(parse(aiInput, req.body ?? { provider: store.db.ai?.provider ?? "off" }));
+    let failure = "";
+    const llm = tracked(createLlm(cfg, count, opts.llmFetch), (m) => (failure = m));
+    if (!llm) return reply.code(400).send({ error: cfg.provider === "custom" ? "ใส่ที่อยู่ API และชื่อโมเดล" : "ใส่ API key ก่อนทดสอบ" });
+    const ctx = director.brainContext();
+    const product = ctx.products.find((p) => p.id === ctx.currentProductId) ?? ctx.products.find((p) => p.status === "ACTIVE");
+    const started = Date.now();
+    const out = await new HostBrain(llm).freeTalk(product, ctx);
+    if (failure) return reply.code(400).send({ error: failure });
+    return { text: out.text, via: out.via, ms: Date.now() - started };
+  });
+
+  app.get("/api/health", async () => ({ ok: true, llm: brain.usesLlm ? store.db.ai?.provider ?? opts.llm?.id : "offline-templates", tts: tts.id, tiktok: tiktok.id }));
   app.get("/api/policy", async () => ({ prohibited: PROHIBITED_CAPABILITIES, tiktokProvider: tiktok.id, tiktokCapabilities: tiktok.capabilities, unsupportedMessage: UNSUPPORTED_TIKTOK_MESSAGE }));
 
   // ---- TTS (remote provider audio for the stage) ----
@@ -311,7 +395,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       }
       case "product": director.showProduct(parse(z.object({ productId: z.string().nullable() }), body).productId); break;
       case "pitch": await director.pitch(parse(z.object({ productId: z.string() }), body).productId); break;
-      case "promo": director.readPromo(parse(z.object({ promotionId: z.string() }), body).promotionId); break;
+      case "promo": await director.readPromo(parse(z.object({ promotionId: z.string() }), body).promotionId); break;
       case "scene": director.setScene(parse(z.object({ sceneId: z.string() }), body).sceneId); break;
       case "gesture": director.gesture(parse(z.object({ gesture: z.enum(GESTURES) }), body).gesture); break;
       case "emotion": director.emotion(parse(z.object({ emotion: z.enum(EMOTIONS) }), body).emotion); break;

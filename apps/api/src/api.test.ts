@@ -189,3 +189,38 @@ describe("comment capture", () => {
     expect(q.source).toBe("clipboard");
   });
 });
+
+describe("AI brain settings", () => {
+  it("saves a Claude key without ever returning it, and the host then speaks AI-written lines", async () => {
+    const calls: { url: string; headers: Record<string, string>; body: { model: string } }[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(init.body as string) });
+      return new Response(JSON.stringify({ content: [{ type: "text", text: "ช่วงนี้อากาศร้อน เซรั่มตัวนี้เนื้อบางเบาใช้สบายเลยค่ะ" }], usage: { input_tokens: 900, output_tokens: 40 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const app = (await buildServer({ dataFile: null, llmFetch: fakeFetch })).app;
+    expect(json(await app.inject({ method: "GET", url: "/api/ai" })).active).toBe(false);
+    expect((await app.inject({ method: "PUT", url: "/api/ai", payload: { provider: "claude" } })).statusCode).toBe(400);
+
+    const saved = json(await app.inject({ method: "PUT", url: "/api/ai", payload: { provider: "claude", apiKey: "sk-ant-secret-123456" } }));
+    expect(saved).toMatchObject({ active: true, model: "claude-sonnet-5-5", hasKey: true, keyHint: "sk-a…3456" });
+    expect(JSON.stringify(saved)).not.toContain("secret");
+
+    const test = json(await app.inject({ method: "POST", url: "/api/ai/test", payload: { provider: "claude" } }));
+    expect(test.via).toBe("llm");
+    expect(calls[0]!.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(calls[0]!.headers["x-api-key"]).toBe("sk-ant-secret-123456");
+    expect(json(await app.inject({ method: "GET", url: "/api/ai" })).usage).toMatchObject({ calls: 1, inputTokens: 900, outputTokens: 40 });
+
+    expect(json(await app.inject({ method: "PUT", url: "/api/ai", payload: { provider: "off" } })).active).toBe(false);
+    await app.close();
+  });
+
+  it("explains a rejected key in plain words", async () => {
+    const fakeFetch = (async () => new Response("{}", { status: 401 })) as unknown as typeof fetch;
+    const app = (await buildServer({ dataFile: null, llmFetch: fakeFetch })).app;
+    const r = await app.inject({ method: "POST", url: "/api/ai/test", payload: { provider: "openai", apiKey: "sk-bad" } });
+    expect(r.statusCode).toBe(400);
+    expect(json(r).error).toContain("API key ไม่ถูกต้อง");
+    await app.close();
+  });
+});
