@@ -39,6 +39,9 @@ export function StagePage() {
   const charRef = useRef(character);
   charRef.current = character;
   const videoRef = useRef<HTMLVideoElement>(null);
+  const bgmRef = useRef<HTMLAudioElement>(null);
+  const speakingRef = useRef(false);
+  speakingRef.current = !!frame?.speaking;
   const service = useRef<ServiceStream | null>(null);
   const linkRef = useRef<{ send: (m: unknown) => void } | null>(null);
   // Problems with the realistic avatar go to the control room, never on air.
@@ -75,6 +78,23 @@ export function StagePage() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // Background music: full level between lines, ducked under the host's voice, eased so it never jumps.
+  const bgmVolume = settings?.bgmVolume ?? 0.3;
+  useEffect(() => {
+    const a = bgmRef.current;
+    if (!a || preview) return;
+    a.volume = bgmVolume;
+    let lastSpoke = -Infinity;
+    const t = window.setInterval(() => {
+      const now = performance.now();
+      if (speakingRef.current) lastSpoke = now;
+      const target = now - lastSpoke < 600 ? bgmVolume * 0.25 : bgmVolume;
+      a.volume = Math.max(0, Math.min(1, a.volume + (target - a.volume) * 0.25));
+      if (a.paused && a.src) void a.play().catch(() => setNeedsClick(true));
+    }, 50);
+    return () => clearInterval(t);
+  }, [bgmVolume, settings?.bgmUrl]);
 
   // Commands from the director
   useEffect(() => {
@@ -162,6 +182,7 @@ export function StagePage() {
     <div className="stage" style={{ background: scene?.background ?? "linear-gradient(160deg,#ffe3ec,#fff1c9)" }} onClick={() => {
         setNeedsClick(false);
         void videoRef.current?.play().catch(() => undefined);
+        void bgmRef.current?.play().catch(() => undefined);
       }}>
       <div className="stage-canvas">
         {settings?.backgroundImage && (
@@ -211,13 +232,23 @@ export function StagePage() {
                 {formatBaht(product.price)}
                 {product.compareAtPrice && <s>{formatBaht(product.compareAtPrice)}</s>}
               </div>
-              {product.stock === 0 && <div className="pc-oos">สินค้าหมดชั่วคราว</div>}
+              {product.stock === 0 ? (
+                <div className="pc-oos">สินค้าหมดชั่วคราว</div>
+              ) : (
+                (settings?.lowStockAt ?? 0) > 0 && product.stock <= (settings?.lowStockAt ?? 0) && <div className="pc-low">เหลือ {product.stock} ชิ้น</div>
+              )}
               <div className="pc-cta">กดตะกร้าสินค้าเพื่อสั่งซื้อ</div>
             </div>
           </div>
         )}
 
-        {showCaptions && caption && <div className="caption">{caption}</div>}
+        {showCaptions && caption && <div className={`caption${settings?.tickerText ? " above-ticker" : ""}`}>{caption}</div>}
+        {settings?.tickerText && (
+          <div className="ticker">
+            <span>{settings.tickerText}</span>
+          </div>
+        )}
+        {settings?.bgmUrl && !preview && <audio ref={bgmRef} src={settings.bgmUrl} loop autoPlay />}
         {needsClick && <div className="click-hint">คลิกหนึ่งครั้งเพื่อเปิดเสียง</div>}
       </div>
     </div>

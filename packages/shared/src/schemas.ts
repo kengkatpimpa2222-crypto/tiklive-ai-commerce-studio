@@ -129,4 +129,8 @@ export const stageSettingsInput = z.object({
   avatarX: z.number().min(-0.3).max(0.3),
   avatarY: z.number().min(-0.2).max(0.2),
   showCaptions: z.boolean(),
+  bgmUrl: z.string().max(500).optional(),
+  bgmVolume: z.number().min(0).max(1),
+  tickerText: z.string().max(200),
+  lowStockAt: z.number().int().min(0).max(999),
 });

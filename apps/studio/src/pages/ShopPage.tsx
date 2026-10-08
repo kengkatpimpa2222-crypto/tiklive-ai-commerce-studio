@@ -98,6 +98,24 @@ export function ShopPage() {
             <label className="inline">
               <input type="checkbox" checked={stage.showCaptions} onChange={(e) => change({ showCaptions: e.target.checked })} /> แสดงคำบรรยายใต้ภาพ
             </label>
+            <label>
+              ข้อความวิ่งด้านล่างจอ (เช่น เวลาส่งของ โปรประจำวัน) เว้นว่างเพื่อซ่อน
+              <input value={stage.tickerText} maxLength={200} placeholder="ส่งทุกวัน ตัดรอบ 14:00 น. · สอบถามพิมพ์ในแชทได้เลย" onChange={(e) => change({ tickerText: e.target.value })} />
+            </label>
+            <label>
+              ป้าย "เหลือ N ชิ้น" บนการ์ดสินค้า
+              <select value={stage.lowStockAt} onChange={(e) => change({ lowStockAt: Number(e.target.value) })}>
+                <option value={0}>ไม่แสดง</option>
+                <option value={5}>เมื่อเหลือ 5 ชิ้นหรือน้อยกว่า</option>
+                <option value={10}>เมื่อเหลือ 10 ชิ้นหรือน้อยกว่า</option>
+                <option value={20}>เมื่อเหลือ 20 ชิ้นหรือน้อยกว่า</option>
+              </select>
+              <span className="muted">ใช้ตัวเลขสต็อกที่ใส่ไว้ในหน้าสินค้า อัปเดตให้ตรงกับร้านจริงเสมอ (ห้ามใส่ตัวเลขหลอกเพื่อเร่งคนซื้อ)</span>
+            </label>
+            <h3>เพลงพื้นหลัง</h3>
+            <MusicUpload value={stage.bgmUrl} onChange={(url) => change({ bgmUrl: url })} />
+            <Slider label="ความดังเพลง (ตอน AI พูด เพลงจะเบาลงเอง)" min={0} max={1} step={0.05} value={stage.bgmVolume} onChange={(v) => change({ bgmVolume: v })} />
+            <p className="note">ใช้เพลงที่มีสิทธิ์ใช้ เช่น เพลงฟรีลิขสิทธิ์ หรือเพลงจากคลังเพลงของ TikTok LIVE Studio เพลงติดลิขสิทธิ์อาจทำให้ไลฟ์ถูกปิดเสียง</p>
             <p className="note">ป้าย "AI Virtual Host" แสดงตลอดและปิดไม่ได้ เพื่อแจ้งผู้ชมว่าเป็นตัวละคร AI</p>
           </div>
         )}
@@ -115,5 +133,40 @@ function Slider({ label, value, onChange, ...r }: { label: string; value: number
       {label} <span className="muted">{value.toFixed(2)}</span>
       <input type="range" value={value} onChange={(e) => onChange(Number(e.target.value))} {...r} />
     </label>
+  );
+}
+
+/** Picks the seller's own music file and uploads it next to the app data. */
+function MusicUpload({ value, onChange }: { value?: string; onChange: (url: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const pick = async (file: File) => {
+    setErr("");
+    if (file.size > 20 * 1024 * 1024) return setErr("ไฟล์ใหญ่เกิน 20 MB");
+    setBusy(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      const { url } = await api<{ url: string }>("/uploads", { body: { filename: file.name, dataBase64 } });
+      onChange(url);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row">
+      {value ? <audio src={value} controls /> : <span className="muted">ยังไม่มีเพลง</span>}
+      <button disabled={busy} onClick={() => input.current?.click()}>{busy ? "กำลังอัปโหลด…" : value ? "เปลี่ยนเพลง" : "เลือกไฟล์เพลง (mp3, m4a)"}</button>
+      {value && <button onClick={() => onChange("")}>ลบเพลง</button>}
+      <input ref={input} type="file" accept=".mp3,.m4a,.ogg,.wav,audio/*" hidden onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
+      {err && <span className="msg">⚠ {err}</span>}
+    </div>
   );
 }

@@ -77,7 +77,7 @@ export function providersFromEnv(env: NodeJS.ProcessEnv = process.env) {
 }
 
 export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyInstance; store: Store; director: LiveDirector }> {
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
   await app.register(cors, { origin: [/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/] });
   await app.register(websocket);
 
@@ -229,6 +229,8 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
 
   // ---- image uploads (product photos, stage backgrounds) ----
   const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+  const AUDIO_TYPES: Record<string, string> = { mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", wav: "audio/wav" };
+  const MEDIA_TYPES = { ...IMAGE_TYPES, ...AUDIO_TYPES };
   const memoryUploads = new Map<string, Buffer>();
   const uploadsDir = opts.dataFile ? join(dirname(opts.dataFile), "uploads") : null;
   const saveUpload = (buf: Buffer, ext: string): string => {
@@ -242,18 +244,19 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   app.post("/api/uploads", async (req, reply) => {
     const { filename, dataBase64 } = parse(z.object({ filename: z.string().min(1).max(200), dataBase64: z.string().min(1) }), req.body);
     const ext = filename.split(".").pop()!.toLowerCase();
-    if (!IMAGE_TYPES[ext]) return reply.code(400).send({ error: "รองรับเฉพาะไฟล์รูป png, jpg, webp, gif" });
+    const audio = !!AUDIO_TYPES[ext];
+    if (!IMAGE_TYPES[ext] && !audio) return reply.code(400).send({ error: "รองรับเฉพาะไฟล์รูป png, jpg, webp, gif หรือเพลง mp3, m4a, ogg, wav" });
     const buf = Buffer.from(dataBase64.replace(/^data:[^,]+,/, ""), "base64");
-    if (buf.length > 5 * 1024 * 1024) return reply.code(413).send({ error: "ไฟล์ใหญ่เกิน 5 MB" });
+    if (buf.length > (audio ? 20 : 5) * 1024 * 1024) return reply.code(413).send({ error: `ไฟล์ใหญ่เกิน ${audio ? 20 : 5} MB` });
     return reply.code(201).send({ url: saveUpload(buf, ext) });
   });
   app.get<{ Params: { name: string } }>("/uploads/:name", async (req, reply) => {
     const name = req.params.name;
     const ext = name.split(".").pop()!.toLowerCase();
-    if (!/^[\w.-]+$/.test(name) || !IMAGE_TYPES[ext]) return reply.code(404).send();
+    if (!/^[\w.-]+$/.test(name) || !MEDIA_TYPES[ext]) return reply.code(404).send();
     const buf = uploadsDir ? (existsSync(join(uploadsDir, name)) ? readFileSync(join(uploadsDir, name)) : undefined) : memoryUploads.get(name);
     if (!buf) return reply.code(404).send();
-    return reply.type(IMAGE_TYPES[ext]!).header("cache-control", "public, max-age=31536000, immutable").send(buf);
+    return reply.type(MEDIA_TYPES[ext]!).header("cache-control", "public, max-age=31536000, immutable").send(buf);
   });
   // ---- product import: a pasted link (its preview metadata) or pasted text → draft for review ----
   const fetchPage = async (url: URL, accept: string, maxBytes: number) => {

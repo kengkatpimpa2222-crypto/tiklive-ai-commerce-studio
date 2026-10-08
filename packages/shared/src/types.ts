@@ -66,6 +66,14 @@ export interface StageSettings {
   avatarX: number; // -0.3..0.3 of stage width
   avatarY: number; // -0.2..0.2 of stage height
   showCaptions: boolean;
+  /** Seller's own background music (uploaded file). It ducks automatically while the host speaks. */
+  bgmUrl?: string;
+  /** Music volume when the host is quiet, 0..1. */
+  bgmVolume: number;
+  /** Scrolling announcement strip at the bottom of the stage; empty hides it. */
+  tickerText: string;
+  /** Show "เหลือ N ชิ้น" on the product card when stock is at or below this; 0 turns it off. Uses the stock the seller entered. */
+  lowStockAt: number;
 }
 
 export interface StudioSettings {

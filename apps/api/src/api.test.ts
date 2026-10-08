@@ -335,3 +335,20 @@ describe("character gallery", () => {
     expect((await ctx.app.inject({ method: "PUT", url: "/api/characters/main", payload: { id: "nope" } })).statusCode).toBe(404);
   });
 });
+
+describe("stage extras", () => {
+  it("stores music, ticker and low-stock settings and serves uploaded music", async () => {
+    const mp3 = Buffer.from("ID3fake-mp3-data").toString("base64");
+    const up = await ctx.app.inject({ method: "POST", url: "/api/uploads", payload: { filename: "song.mp3", dataBase64: mp3 } });
+    expect(up.statusCode).toBe(201);
+    const { url } = json(up);
+    const got = await ctx.app.inject({ method: "GET", url });
+    expect(got.headers["content-type"]).toBe("audio/mpeg");
+    expect((await ctx.app.inject({ method: "POST", url: "/api/uploads", payload: { filename: "x.exe", dataBase64: mp3 } })).statusCode).toBe(400);
+
+    const r = await ctx.app.inject({ method: "PATCH", url: "/api/settings/stage", payload: { bgmUrl: url, bgmVolume: 0.4, tickerText: "ส่งทุกวัน", lowStockAt: 10 } });
+    expect(r.statusCode).toBe(200);
+    expect(json(r).stage).toMatchObject({ bgmUrl: url, bgmVolume: 0.4, tickerText: "ส่งทุกวัน", lowStockAt: 10 });
+    expect((await ctx.app.inject({ method: "PATCH", url: "/api/settings/stage", payload: { bgmVolume: 3 } })).statusCode).toBe(400);
+  });
+});
