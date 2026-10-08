@@ -82,3 +82,37 @@ describe("summarizeLive", () => {
     expect(sum.narrative).toContain("คำสั่งซื้อ 5");
   });
 });
+
+import { generateScript } from "./scriptgen.js";
+import type { Scene } from "@tlai/shared";
+
+describe("generateScript", () => {
+  const scenes: Scene[] = (["intro", "product", "promo", "qa"] as const).map((k) => ({ id: `s_${k}`, name: k, kind: k, background: "#fff", showProductCard: true, showPromoBanner: true, showCaptions: true }));
+  const tee: Product = { ...product, id: "p2", sku: "TEE", name: "เสื้อยืด", compareAtPrice: undefined };
+  const serumPromo: Promotion = { id: "pr2", title: "เซรั่มคู่", detail: "ซื้อ 2 ขวด ลด 10%", productIds: ["p1"], active: true };
+
+  it("covers every product with show, pitch and Q&A, and reads matching promotions", () => {
+    const plan = generateScript({ title: "x", character, products: [product, tee], promotions: [promo, serumPromo], scenes, durationMinutes: 5 });
+    const steps = plan.script.steps;
+    for (const id of ["p1", "p2"]) {
+      expect(steps).toContainEqual({ kind: "show_product", productId: id });
+      expect(steps).toContainEqual({ kind: "pitch_product", productId: id });
+    }
+    expect(steps).toContainEqual({ kind: "read_promo", promotionId: "pr2" });
+    expect(steps.filter((s) => s.kind === "qa_window").length).toBe(3);
+    expect(steps[0]).toEqual({ kind: "scene", sceneId: "s_intro" });
+  });
+
+  it("loops when the planned live is longer than one pass", () => {
+    const short = generateScript({ title: "x", character, products: [product], promotions: [], scenes, durationMinutes: 1 });
+    const long = generateScript({ title: "x", character, products: [product], promotions: [], scenes, durationMinutes: 60 });
+    expect(short.script.onEnd).toBe("free_talk");
+    expect(long.script.onEnd).toBe("loop");
+    expect(long.passes).toBeGreaterThan(1);
+  });
+
+  it("skips products that are not active", () => {
+    const plan = generateScript({ title: "x", character, products: [{ ...product, status: "DRAFT" }], promotions: [], scenes, durationMinutes: 10 });
+    expect(plan.script.steps.some((s) => s.kind === "pitch_product")).toBe(false);
+  });
+});

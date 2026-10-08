@@ -14,6 +14,21 @@ export function ScriptsPage() {
   const [scenes] = useData<Scene[]>("/scenes", []);
   const [sel, setSel] = useState<LiveScript | null>(null);
   const [msg, setMsg] = useState("");
+  const [gen, setGen] = useState({ open: false, title: "", productIds: [] as string[], durationMinutes: 60, questionsPerProduct: 3 });
+
+  const generate = async () => {
+    try {
+      const plan = await api<{ script: LiveScript; minutesPerPass: number; passes: number }>("/scripts/generate", {
+        body: { ...gen, title: gen.title || `ไลฟ์ ${new Date().toLocaleDateString("th-TH")}`, save: true },
+      });
+      setSel(plan.script);
+      setGen({ ...gen, open: false });
+      setMsg(`สร้างแล้ว ${plan.script.steps.length} ขั้นตอน รอบละประมาณ ${plan.minutesPerPass} นาที${plan.passes > 1 ? ` วนประมาณ ${plan.passes} รอบ` : ""}`);
+      reload();
+    } catch (e) {
+      setMsg(`⚠ ${(e as Error).message}`);
+    }
+  };
 
   useEffect(() => {
     if (!sel && scripts[0]) setSel(scripts[0]);
@@ -60,7 +75,32 @@ export function ScriptsPage() {
           <button key={s.id} className={s.id === sel?.id ? "on" : ""} onClick={() => setSel(s)}>{s.title}</button>
         ))}
         <button onClick={() => setSel({ id: "", title: "สคริปต์ใหม่", onEnd: "free_talk", steps: [] })}>+ สคริปต์ใหม่</button>
+        <button className="primary" onClick={() => setGen({ ...gen, open: !gen.open })}>✨ สร้างสคริปต์อัตโนมัติ</button>
       </div>
+      {gen.open && (
+        <div className="card form">
+          <h2>สร้างสคริปต์จากสินค้าที่เลือก</h2>
+          <input placeholder="ชื่อสคริปต์" value={gen.title} onChange={(e) => setGen({ ...gen, title: e.target.value })} />
+          <div className="checks">
+            {products.filter((p) => p.status === "ACTIVE").map((p) => (
+              <label key={p.id}>
+                <input
+                  type="checkbox"
+                  checked={gen.productIds.includes(p.id)}
+                  onChange={(e) => setGen({ ...gen, productIds: e.target.checked ? [...gen.productIds, p.id] : gen.productIds.filter((x) => x !== p.id) })}
+                />
+                {p.name}
+              </label>
+            ))}
+          </div>
+          <div className="row">
+            <label>ความยาวไลฟ์ (นาที) <input type="number" min={5} max={600} value={gen.durationMinutes} onChange={(e) => setGen({ ...gen, durationMinutes: Number(e.target.value) })} /></label>
+            <label>คำถามต่อสินค้า <input type="number" min={1} max={10} value={gen.questionsPerProduct} onChange={(e) => setGen({ ...gen, questionsPerProduct: Number(e.target.value) })} /></label>
+          </div>
+          <p className="note">เรียงลำดับ: ทักทาย → แต่ละสินค้า (แสดง, แนะนำจากข้อมูลจริง, โปรของสินค้านั้น, ตอบคำถาม) → โปรทั้งร้าน → ช่วงตอบคำถามรวม ถ้าไลฟ์ยาวกว่าหนึ่งรอบจะวนซ้ำ แก้ไขต่อได้หลังสร้าง</p>
+          <button className="primary" disabled={gen.productIds.length === 0} onClick={generate}>สร้าง</button>
+        </div>
+      )}
       {sel && (
         <div className="card">
           <div className="row">

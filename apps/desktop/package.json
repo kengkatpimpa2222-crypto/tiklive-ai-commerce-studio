@@ -21,10 +21,31 @@
   "build": {
     "appId": "studio.tiklive.ai-commerce",
     "productName": "TikLive AI Commerce Studio",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "package.json"],
-    "extraResources": [{ "from": "../studio/dist", "to": "studio" }, { "from": "../../.env.example", "to": ".env.example" }],
-    "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../studio/dist",
+        "to": "studio"
+      },
+      {
+        "from": "../../.env.example",
+        "to": ".env.example"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "npmRebuild": false,
+    "asar": true
   }
 }

@@ -1,5 +1,5 @@
 import type { HostCharacter, SpeechSegment } from "@tlai/shared";
-import { buildVisemeTimeline, estimateDurationMs, type VisemeFrame } from "@tlai/tts";
+import { buildVisemeTimeline, estimateDurationMs, prosodyFor, type VisemeFrame } from "@tlai/tts";
 
 export interface SpeechCallbacks {
   onStart(visemes: VisemeFrame[], durationMs: number): void;
@@ -49,9 +49,10 @@ export class SpeechEngine {
     const u = new SpeechSynthesisUtterance(seg.text);
     u.voice = pickVoice(c)!;
     u.lang = c.voice.lang;
-    u.rate = c.voice.rate;
-    u.pitch = c.voice.pitch;
-    const est = estimateDurationMs(seg.text, c.voice.rate);
+    const { rate, pitch } = prosodyFor(seg.emotion, c.voice);
+    u.rate = rate;
+    u.pitch = pitch;
+    const est = estimateDurationMs(seg.text, rate);
     let started = 0;
     u.onstart = () => {
       started = performance.now();
@@ -74,6 +75,7 @@ export class SpeechEngine {
     const data = (await res.json()) as { audio: string | null; mime?: string; durationMs: number; visemes: VisemeFrame[] };
     if (!data.audio || this.cancelled) throw new Error("no audio");
     const audio = new Audio(`data:${data.mime};base64,${data.audio}`);
+    audio.playbackRate = prosodyFor(seg.emotion, { rate: 1, pitch: 1 }).rate;
     this.audio = audio;
     this.ctx ??= new AudioContext();
     const src = this.ctx.createMediaElementSource(audio);
@@ -88,7 +90,7 @@ export class SpeechEngine {
       cb.onAmplitude(Math.sqrt(s / buf.length));
       this.raf = requestAnimationFrame(tick);
     };
-    audio.onloadedmetadata = () => isFinite(audio.duration) && cb.onDuration(audio.duration * 1000);
+    audio.onloadedmetadata = () => isFinite(audio.duration) && cb.onDuration((audio.duration * 1000) / audio.playbackRate);
     audio.onended = () => {
       cancelAnimationFrame(this.raf);
       cb.onAmplitude(undefined);

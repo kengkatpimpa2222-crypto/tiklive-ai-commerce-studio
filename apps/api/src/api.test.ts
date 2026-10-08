@@ -102,3 +102,35 @@ describe("tiktok", () => {
     expect(r.message).toContain("TikTok LIVE Studio");
   });
 });
+
+describe("script generator and exports", () => {
+  it("generates and saves a script from products", async () => {
+    const r = await ctx.app.inject({ method: "POST", url: "/api/scripts/generate", payload: { productIds: ["prod_serum", "prod_tee"], durationMinutes: 30 } });
+    expect(r.statusCode).toBe(201);
+    const plan = json(r);
+    expect(plan.script.steps.filter((s: { kind: string }) => s.kind === "pitch_product").length).toBe(2);
+    const saved = json(await ctx.app.inject({ method: "GET", url: `/api/scripts/${plan.script.id}` }));
+    expect(saved.title).toBe("สคริปต์อัตโนมัติ");
+  });
+
+  it("generated scripts pass the pre-live check", async () => {
+    const plan = json(await ctx.app.inject({ method: "POST", url: "/api/scripts/generate", payload: { productIds: ["prod_serum", "prod_bottle", "prod_tee"] } }));
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "g", characterId: "char_mint", scriptId: plan.script.id, productIds: ["prod_serum", "prod_bottle", "prod_tee"] } }));
+    const check = json(await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/check` }));
+    expect(check.ok).toBe(true);
+  });
+
+  it("exports a markdown report and a CSV event log", async () => {
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "ส่งออก", characterId: "char_mint", productIds: ["prod_serum"] } }));
+    await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` });
+    await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/end` });
+    const md = await ctx.app.inject({ method: "GET", url: `/api/live/${live.id}/export.md` });
+    expect(md.statusCode).toBe(200);
+    expect(md.body).toContain("# สรุปผล LIVE: ส่งออก");
+    const csv = await ctx.app.inject({ method: "GET", url: `/api/live/${live.id}/export.csv` });
+    expect(csv.headers["content-type"]).toContain("text/csv");
+    expect(csv.body.startsWith("﻿time,type,product,text")).toBe(true);
+    expect(csv.body).toContain(",started,");
+    expect(csv.body).toContain(",ended,");
+  });
+});

@@ -46,6 +46,8 @@ export interface DirectorDeps {
   now?: () => number;
   /** Seconds of silence before the host fills with a free-talk line (script onEnd = free_talk). */
   freeTalkAfterMs?: number;
+  /** In free talk, pitch the next product after this many filler lines (0 = never rotate). */
+  rotateEveryTurns?: number;
 }
 
 const ABUSE = /(ควย|เหี้ย|สัส|fuck|shit)/i;
@@ -286,8 +288,17 @@ export class LiveDirector {
     if (!this.script || this.script.onEnd === "free_talk") {
       this.idleTimer = setTimeout(() => {
         this.idleTimer = null;
+        const turn = this.freeTalkTurn++;
+        // Every few lines of free talk, move on to the next product so every item gets airtime.
+        const every = this.d.rotateEveryTurns ?? 4;
+        const lineup = this.brainCtx().products.filter((p) => p.status === "ACTIVE");
+        if (every > 0 && turn > 0 && turn % every === 0 && lineup.length > 1) {
+          const i = lineup.findIndex((p) => p.id === this.currentProductId);
+          const next = lineup[(i + 1) % lineup.length]!;
+          return void this.runAsync(() => this.pitch(next.id, false));
+        }
         const product = this.currentProductId ? this.d.store.get("products", this.currentProductId) : undefined;
-        const out = this.d.brain.freeTalk(product, this.brainCtx(), this.freeTalkTurn++);
+        const out = this.d.brain.freeTalk(product, this.brainCtx(), turn);
         this.enqueue(annotate(out.text, "system", { productId: product?.id }), false);
       }, this.d.freeTalkAfterMs ?? 15_000);
     }
@@ -440,6 +451,7 @@ export class LiveDirector {
     this.qaBudget = 0;
     this.qaBetweenSteps = true;
     this.lastDisclosureAt = 0;
+    this.freeTalkTurn = 0;
     this.currentProductId = null;
     this.lastBlocked = null;
   }

@@ -1,7 +1,8 @@
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import { HostBrain, OpenAICompatibleLlm, summarizeLive, type LlmProvider } from "@tlai/ai";
+import { generateScript, HostBrain, OpenAICompatibleLlm, summarizeLive, type LlmProvider } from "@tlai/ai";
+import { summaryCsv, summaryMarkdown } from "./export.js";
 import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
   characterInput,
@@ -38,6 +39,7 @@ export interface ServerOptions {
   tts?: TtsProvider;
   tiktok?: TikTokProvider;
   freeTalkAfterMs?: number;
+  rotateEveryTurns?: number;
   logger?: boolean;
 }
 
@@ -70,6 +72,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     store,
     brain: new HostBrain(opts.llm),
     freeTalkAfterMs: opts.freeTalkAfterMs,
+    rotateEveryTurns: opts.rotateEveryTurns,
     send: (cmd) => {
       if (cmd.type !== "speak" && cmd.type !== "stop_speaking" && cmd.type !== "gesture" && cmd.type !== "emotion") lastByType.set(cmd.type, cmd);
       broadcast(stages, cmd);
@@ -128,6 +131,26 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   crud("promotions", "promotions", promotionInput, "promo");
   crud("scenes", "scenes", sceneInput, "scene");
   crud("characters", "characters", characterInput, "char");
+  // Registered before the CRUD routes so "generate" is not read as a script id.
+  app.post("/api/scripts/generate", async (req, reply) => {
+    const input = parse(
+      z.object({
+        title: z.string().min(1).default("สคริปต์อัตโนมัติ"),
+        characterId: z.string().optional(),
+        productIds: z.array(z.string()).min(1),
+        durationMinutes: z.number().int().min(5).max(600).default(60),
+        questionsPerProduct: z.number().int().min(1).max(10).default(3),
+        save: z.boolean().default(true),
+      }),
+      req.body,
+    );
+    const character = (input.characterId && store.get("characters", input.characterId)) || store.list("characters")[0]!;
+    const products = input.productIds.map((id) => store.get("products", id)).filter((p): p is NonNullable<typeof p> => !!p);
+    if (products.length === 0) return reply.code(400).send({ error: "ไม่พบสินค้าที่เลือก" });
+    const plan = generateScript({ ...input, character, products, promotions: store.list("promotions"), scenes: store.list("scenes") });
+    if (input.save) store.insert("scripts", plan.script);
+    return reply.code(input.save ? 201 : 200).send(plan);
+  });
   crud("scripts", "scripts", scriptInput, "script");
 
   app.get("/api/health", async () => ({ ok: true, llm: opts.llm?.id ?? "offline-templates", tts: tts.id, tiktok: tiktok.id }));
@@ -200,6 +223,18 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const s = store.get("sessions", req.params.id);
     if (!s) return reply.code(404).send({ error: "not found" });
     return summarizeLive(s, store.list("products"));
+  });
+
+  app.get<{ Params: { id: string; fmt: string } }>("/api/live/:id/export.:fmt", async (req, reply) => {
+    const s = store.get("sessions", req.params.id);
+    if (!s) return reply.code(404).send({ error: "not found" });
+    const sum = summarizeLive(s, store.list("products"));
+    const name = `live-${s.startedAt?.slice(0, 10) ?? "draft"}-${s.id}`;
+    if (req.params.fmt === "md")
+      return reply.type("text/markdown; charset=utf-8").header("content-disposition", `attachment; filename="${name}.md"`).send(summaryMarkdown(s, sum));
+    if (req.params.fmt === "csv")
+      return reply.type("text/csv; charset=utf-8").header("content-disposition", `attachment; filename="${name}-events.csv"`).send(summaryCsv(s, store.list("products")));
+    return reply.code(404).send({ error: "รองรับ .md และ .csv" });
   });
 
   // ---- director controls ----

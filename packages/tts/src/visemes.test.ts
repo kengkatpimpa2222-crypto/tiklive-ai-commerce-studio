@@ -37,3 +37,13 @@ describe("visemes", () => {
     expect(v).toBeLessThan(0.01);
   });
 });
+
+import { prosodyFor } from "./prosody.js";
+describe("prosodyFor", () => {
+  it("speeds up when excited and slows when apologetic, within limits", () => {
+    const base = { rate: 1, pitch: 1 };
+    expect(prosodyFor("excited", base).rate).toBeGreaterThan(1);
+    expect(prosodyFor("apologetic", base).rate).toBeLessThan(1);
+    expect(prosodyFor("excited", { rate: 1.95, pitch: 1.95 })).toEqual({ rate: 2, pitch: 2 });
+  });
+});

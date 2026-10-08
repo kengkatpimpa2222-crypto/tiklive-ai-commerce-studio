@@ -34,6 +34,10 @@ export function SummaryPage({ id }: { id?: string }) {
       {sum && (
         <>
           <p className="narrative">{sum.narrative}</p>
+          <div className="row">
+            <a href={`/api/live/${target}/export.md`} download>ดาวน์โหลดรายงาน (.md)</a>
+            <a href={`/api/live/${target}/export.csv`} download>ดาวน์โหลด event log (.csv)</a>
+          </div>
           <div className="kpis">
             <Kpi label="ระยะเวลา (นาที)" v={sum.durationMinutes} />
             <Kpi label="ประโยคที่พูด" v={sum.sentencesSpoken} />
