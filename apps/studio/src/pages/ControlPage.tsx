@@ -65,8 +65,10 @@ export function ControlPage() {
   const [auto, reloadAuto] = useData<{ active: boolean; endsAt: string | null }>("/autopilot", { active: false, endsAt: null });
   const [autoMinutes, setAutoMinutes] = useState(60);
 
+  const [serviceStatus, setServiceStatus] = useState("");
   useEffect(() => {
     const link = connect("control", (m) => {
+      if (m.type === "service_status") setServiceStatus(m.message);
       if (m.type === "state") {
         setState(m.state);
         reloadQuestions();
@@ -300,14 +302,15 @@ export function ControlPage() {
           <h2>หน้าจอออกอากาศ</h2>
           <span className={`pill ${state?.stageConnected ? "on" : "off"}`}>{state?.stageConnected ? "Stage เชื่อมต่อแล้ว" : "ยังไม่เปิด Stage"}</span>
         </div>
-        {characters.length > 0 && !characters.some((c) => c.look.style === "photo") && (
+        {characters.length > 0 && !characters.some((c) => c.look.style === "photo" || c.look.style === "service") && (
           <div className="realistic-cta">
             <div>
-              <b>ตอนนี้ตัวละครเป็นแบบการ์ตูน</b> อยากได้แบบคนเหมือนจริง ให้ใส่รูปคน 1 รูป (รูปคนที่สร้างจาก AI หรือรูปคนจริงที่ยินยอม) แล้วตัวละครจะพูด กะพริบตา ขยับหัวได้จากรูปนั้น
+              <b>ตอนนี้ตัวละครเป็นแบบการ์ตูน</b> อยากได้แบบคนเหมือนจริง เลือกได้ 2 ทาง: ต่อบริการอวตาร AI (D-ID) แล้วเลือกคนจริงจากคลังตัวละคร หรือใส่รูปคน 1 รูปให้ตัวละครพูดจากรูปนั้น
             </div>
-            <a className="button primary" href="#/characters/photo">ตั้งค่าตัวละครเหมือนคนจริง</a>
+            <a className="button primary" href="#/characters">เลือกตัวละครเหมือนคนจริง</a>
           </div>
         )}
+        {serviceStatus && <div className="service-status">อวตารเหมือนคนจริง: {serviceStatus}</div>}
         <div className="preview-frame">
           <iframe title="stage-preview" src="#/stage?preview" />
         </div>

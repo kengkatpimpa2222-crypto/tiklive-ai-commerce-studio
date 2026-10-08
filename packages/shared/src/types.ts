@@ -116,9 +116,10 @@ export interface HostCharacter {
     accent: string;
     /** Cartoon hair cut. "short" and "side" are men's cuts (no lashes or earrings). Default "long". */
     hairStyle?: HairStyle;
-    /** "cartoon" draws the built-in SVG character; "photo" animates an uploaded portrait. */
-    style?: "cartoon" | "photo";
+    /** "cartoon" draws the built-in SVG character; "photo" animates an uploaded portrait; "service" streams a realistic avatar from an AI avatar service. */
+    style?: "cartoon" | "photo" | "service";
     photo?: PhotoLook;
+    service?: ServiceLook;
   };
 }
 
@@ -132,6 +133,21 @@ export interface HostPreset {
   /** Short description shown on the gallery card. */
   tagline: string;
   character: Omit<HostCharacter, "id">;
+}
+
+/**
+ * A realistic streaming avatar from an AI avatar service (D-ID). The service renders the face,
+ * lip sync and voice; the app still decides every word, so the compliance guard applies.
+ */
+export interface ServiceLook {
+  provider: "did";
+  /** The D-ID agent created for this host (holds the presenter and voice). */
+  agentId: string;
+  presenterId: string;
+  /** Still picture shown before the stream connects and in the control-room preview. */
+  imageUrl: string;
+  /** Microsoft Thai neural voice, e.g. th-TH-PremwadeeNeural. */
+  voiceId: string;
 }
 
 export interface PhotoLook {
@@ -254,4 +270,6 @@ export type StageCommand =
 export type StageReport =
   | { type: "hello"; role: "stage" | "preview" | "control" }
   | { type: "speech_started"; segmentId: string }
-  | { type: "speech_done"; segmentId: string };
+  | { type: "speech_done"; segmentId: string }
+  /** Realistic avatar connection problems, shown in the control room instead of on air. Empty clears it. */
+  | { type: "service_status"; message: string };

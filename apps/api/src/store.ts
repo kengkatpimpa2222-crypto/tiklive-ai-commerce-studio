@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AiConfig } from "@tlai/ai";
+import type { AvatarServiceConfig } from "./avatarService.js";
 import type { FaqEntry, HostCharacter, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
 import { defaultSettings, seedCharacters, seedFaqs, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
 
@@ -18,9 +19,11 @@ export interface Db {
   ai?: AiConfig;
   /** The host that goes on air when nothing else is picked (autopilot, a freshly opened stage). */
   mainCharacterId?: string;
+  /** Realistic streaming avatar service. Holds the API key, so it is never sent to the stage. */
+  avatarService?: AvatarServiceConfig;
 }
 
-export type Collection = Exclude<keyof Db, "settings" | "ai" | "mainCharacterId">;
+export type Collection = Exclude<keyof Db, "settings" | "ai" | "mainCharacterId" | "avatarService">;
 type Lists = Pick<Db, Collection>;
 
 const seed = (): Db => ({
@@ -85,6 +88,11 @@ export class Store {
 
   setAi(cfg: AiConfig): void {
     this.db.ai = cfg;
+    this.save();
+  }
+
+  setAvatarService(cfg: AvatarServiceConfig | undefined): void {
+    this.db.avatarService = cfg;
     this.save();
   }
 

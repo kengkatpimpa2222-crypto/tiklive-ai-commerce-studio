@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { connect } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { PhotoAvatar } from "./PhotoAvatar";
+import { ServiceStream } from "./serviceAvatar";
 import { SpeechEngine } from "./speech";
 
 const DEFAULT_CHARACTER: HostCharacter = {
@@ -37,6 +38,24 @@ export function StagePage() {
   const speech = useRef(new SpeechEngine(preview));
   const charRef = useRef(character);
   charRef.current = character;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const service = useRef<ServiceStream | null>(null);
+  const linkRef = useRef<{ send: (m: unknown) => void } | null>(null);
+  // Problems with the realistic avatar go to the control room, never on air.
+  const setServiceNote = (message: string) => linkRef.current?.send({ type: "service_status", message });
+
+  // Realistic service avatar: one WebRTC stream on the on-air stage (never in the control-room preview, which would pay twice).
+  const svcAgent = character.look.style === "service" ? character.look.service?.agentId : undefined;
+  useEffect(() => {
+    if (!svcAgent || preview || !videoRef.current) return;
+    const s = new ServiceStream(character.id, videoRef.current, (st, msg) => setServiceNote(st === "error" ? msg ?? "" : st === "connecting" ? "กำลังเชื่อมต่ออวตาร…" : ""));
+    service.current = s;
+    s.connect().catch((e: Error) => setServiceNote(`เชื่อมต่ออวตารไม่ได้: ${e.message} (จะใช้เสียงในเครื่องแทน)`));
+    return () => {
+      s.close();
+      if (service.current === s) service.current = null;
+    };
+  }, [character.id, svcAgent]);
 
   // The stage is captured as a window: never show scrollbars.
   useEffect(() => {
@@ -97,25 +116,38 @@ export function StagePage() {
           setCaption(seg.text);
           c.setEmotion(seg.emotion);
           if (seg.source !== "qa") setQuestion(null);
-          speech.current
-            .speak(seg, charRef.current, {
-              onStart: (v, d) => {
-                c.startSpeech(v, d);
-                if (seg.gesture !== "none") setTimeout(() => c.playGesture(seg.gesture), 180);
-              },
-              onAmplitude: (a) => c.setAmplitude(a),
-              onDuration: (d) => c.setSpeechDuration(d),
-              onEnd: () => {
-                c.stopSpeech();
-                if (!preview) link.send({ type: "speech_done", segmentId: seg.id });
-                captionTimer = window.setTimeout(() => setCaption(""), 2500);
-              },
-            })
-            .catch(() => setNeedsClick(true));
+          const onEnd = () => {
+            c.stopSpeech();
+            if (!preview) link.send({ type: "speech_done", segmentId: seg.id });
+            captionTimer = window.setTimeout(() => setCaption(""), 2500);
+          };
+          const viaVoice = () =>
+            speech.current
+              .speak(seg, charRef.current, {
+                onStart: (v, d) => {
+                  c.startSpeech(v, d);
+                  if (seg.gesture !== "none") setTimeout(() => c.playGesture(seg.gesture), 180);
+                },
+                onAmplitude: (a) => c.setAmplitude(a),
+                onDuration: (d) => c.setSpeechDuration(d),
+                onEnd,
+              })
+              .catch(() => setNeedsClick(true));
+          const svc = service.current;
+          if (svc) {
+            // The service renders face, lip sync and voice; the controller only drives the "speaking" badge.
+            c.startSpeech([], Math.max(1500, seg.text.length * 85));
+            svc.speak(seg.id, seg.text).then(onEnd, (e: Error) => {
+              setServiceNote(`อวตารพูดไม่ได้: ${e.message} (ใช้เสียงในเครื่องแทนประโยคนี้)`);
+              c.stopSpeech();
+              void viaVoice();
+            });
+          } else void viaVoice();
           break;
         }
       }
     });
+    linkRef.current = link;
     return () => link.close();
   }, []);
 
@@ -127,7 +159,10 @@ export function StagePage() {
     ? { transform: `translate(${settings.avatarX * 100}%, ${settings.avatarY * 100}%) scale(${settings.avatarScale})` }
     : undefined;
   return (
-    <div className="stage" style={{ background: scene?.background ?? "linear-gradient(160deg,#ffe3ec,#fff1c9)" }} onClick={() => setNeedsClick(false)}>
+    <div className="stage" style={{ background: scene?.background ?? "linear-gradient(160deg,#ffe3ec,#fff1c9)" }} onClick={() => {
+        setNeedsClick(false);
+        void videoRef.current?.play().catch(() => undefined);
+      }}>
       <div className="stage-canvas">
         {settings?.backgroundImage && (
           <div className="stage-bg" style={{ backgroundImage: `url(${settings.backgroundImage})` }}>
@@ -135,7 +170,14 @@ export function StagePage() {
           </div>
         )}
         <div className="avatar-wrap" style={avatarStyle}>
-          {frame && (character.look.style === "photo" && character.look.photo ? <PhotoAvatar frame={frame} photo={character.look.photo} /> : <Avatar frame={frame} character={character} />)}
+          {character.look.style === "service" && character.look.service ? (
+            <div className="service-avatar">
+              <img src={character.look.service.imageUrl} alt="" />
+              {!preview && <video ref={videoRef} autoPlay playsInline onPlaying={() => setServiceNote("")} onError={() => setServiceNote("วิดีโออวตารเล่นไม่ได้")} />}
+            </div>
+          ) : (
+            frame && (character.look.style === "photo" && character.look.photo ? <PhotoAvatar frame={frame} photo={character.look.photo} /> : <Avatar frame={frame} character={character} />)
+          )}
         </div>
         {settings?.shopName && <div className="shop-name">{settings.shopName}</div>}
 

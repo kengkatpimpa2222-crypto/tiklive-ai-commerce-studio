@@ -4,7 +4,8 @@ import websocket from "@fastify/websocket";
 import { AI_PRESETS, BLOCKED_IMPORT_HOSTS, createLlm, generateScript, importProduct, metaToText, parsePageMeta, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
 import { summaryCsv, summaryMarkdown } from "./export.js";
 import { hostPresets } from "./seed.js";
-import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
+import { DidClient, THAI_VOICES, defaultThaiVoice } from "./avatarService.js";
+import { DEFAULT_DISCLOSURE_LABEL, PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
   characterInput,
   faqInput,
@@ -42,6 +43,8 @@ export interface ServerOptions {
   llm?: LlmProvider;
   /** Test hook for AI provider HTTP calls. */
   llmFetch?: typeof fetch;
+  /** Test hook for the avatar service (D-ID) HTTP calls. */
+  avatarFetch?: typeof fetch;
   tts?: TtsProvider;
   tiktok?: TikTokProvider;
   freeTalkAfterMs?: number;
@@ -122,6 +125,12 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     };
   const activeLlm = () => tracked(store.db.ai ? createLlm(store.db.ai, count, opts.llmFetch) : opts.llm);
   const brain = new HostBrain(activeLlm());
+  // Lines the director sent to the stage. A streaming avatar may only speak these.
+  const spokenSegments = new Map<string, string>();
+  const rememberSegment = (id: string, text: string) => {
+    spokenSegments.set(id, text);
+    if (spokenSegments.size > 200) spokenSegments.delete(spokenSegments.keys().next().value!);
+  };
 
   const director: LiveDirector = new LiveDirector({
     store,
@@ -130,6 +139,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     promoEveryMs: opts.promoEveryMs,
     rotateEveryTurns: opts.rotateEveryTurns,
     send: (cmd) => {
+      if (cmd.type === "speak") rememberSegment(cmd.segment.id, cmd.segment.text);
       if (cmd.type !== "speak" && cmd.type !== "stop_speaking" && cmd.type !== "gesture" && cmd.type !== "emotion" && cmd.type !== "question") lastByType.set(cmd.type, cmd);
       broadcast(stages, cmd);
       broadcast(controls, { type: "stage", cmd });
@@ -159,6 +169,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
           if (!lastByType.has("settings")) socket.send(JSON.stringify({ type: "settings", settings: store.db.settings }));
         } else socket.send(JSON.stringify({ type: "state", state: director.state() }));
       } else if (msg.type === "speech_done" && role === "stage") director.onSpeechDone(msg.segmentId);
+      else if (msg.type === "service_status" && role === "stage") broadcast(controls, { type: "service_status", message: String(msg.message).slice(0, 300) });
     });
     socket.on("close", () => {
       stages.delete(socket);
@@ -382,6 +393,107 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     return { text: out.text, via: out.via, ms: Date.now() - started };
   });
 
+  // ---- realistic streaming avatar (D-ID) ----
+  const did = () => (store.db.avatarService?.apiKey ? new DidClient(store.db.avatarService.apiKey, opts.avatarFetch) : null);
+  const needDid = () => {
+    const c = did();
+    if (!c) throw Object.assign(new Error("ยังไม่ได้ใส่ API key ของ D-ID"), { statusCode: 400 });
+    return c;
+  };
+  const serviceView = () => {
+    const key = store.db.avatarService?.apiKey ?? "";
+    return { provider: "did", hasKey: key.length > 0, keyHint: key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : key ? "••••" : "", voices: THAI_VOICES };
+  };
+  let presenterCache: { at: number; list: Awaited<ReturnType<DidClient["presenters"]>> } | null = null;
+  /** One stream at a time: a reloaded stage replaces the old one instead of paying for two. */
+  let activeStream: { agentId: string; streamId: string; sessionId: string; characterId: string } | null = null;
+  const closeActiveStream = async () => {
+    const s = activeStream;
+    activeStream = null;
+    if (s) await did()?.closeStream(s.agentId, s.streamId, s.sessionId).catch(() => undefined);
+  };
+  const streamFor = (id: string) => {
+    if (!activeStream || activeStream.streamId !== id) throw Object.assign(new Error("การเชื่อมต่ออวตารหมดอายุ กำลังเชื่อมใหม่"), { statusCode: 410 });
+    return activeStream;
+  };
+
+  app.get("/api/avatar-service", async () => serviceView());
+  app.put("/api/avatar-service", async (req) => {
+    const { apiKey } = parse(z.object({ apiKey: z.string().trim().max(500) }), req.body);
+    if (!apiKey) {
+      await closeActiveStream();
+      store.setAvatarService(undefined);
+    } else {
+      // Only keep a key that works.
+      await new DidClient(apiKey, opts.avatarFetch).credits();
+      store.setAvatarService({ provider: "did", apiKey });
+    }
+    presenterCache = null;
+    return serviceView();
+  });
+  app.post("/api/avatar-service/test", async () => needDid().credits());
+  app.get("/api/avatar-service/presenters", async () => {
+    const c = needDid();
+    if (!presenterCache || Date.now() - presenterCache.at > 30 * 60_000) presenterCache = { at: Date.now(), list: await c.presenters() };
+    return presenterCache.list;
+  });
+  app.post("/api/avatar-service/use", async (req, reply) => {
+    const c = needDid();
+    const body = parse(z.object({ presenterId: z.string().min(1), name: z.string().trim().min(1).max(60), gender: z.string().default(""), imageUrl: z.string().url() }), req.body);
+    const voiceId = defaultThaiVoice(body.gender);
+    const agentId = await c.createAgent(body.name, body.presenterId, voiceId);
+    const female = body.gender !== "male";
+    const ch = store.insert("characters", {
+      id: newId("char"),
+      name: body.name,
+      disclosureLabel: DEFAULT_DISCLOSURE_LABEL,
+      persona: female ? "สดใส เป็นกันเอง อธิบายสินค้าชัดเจนและตรงไปตรงมา" : "สุภาพ น่าเชื่อถือ อธิบายจุดเด่นสินค้าเป็นภาษาง่าย",
+      politeParticle: female ? "ค่ะ" : "ครับ",
+      energy: "high",
+      voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1, pitch: 1 },
+      look: { skin: "#f3cfb3", hair: "#2a1b17", eyes: "#3a2418", outfit: "#ff4f7b", accent: "#ffd166", style: "service", service: { provider: "did", agentId, presenterId: body.presenterId, imageUrl: body.imageUrl, voiceId } },
+    });
+    store.setMainCharacter(ch.id);
+    return reply.code(201).send(ch);
+  });
+  app.post("/api/avatar-service/streams", async (req) => {
+    const c = needDid();
+    const { characterId } = parse(z.object({ characterId: z.string() }), req.body);
+    const ch = store.get("characters", characterId);
+    const svc = ch?.look.style === "service" ? ch.look.service : undefined;
+    if (!svc) throw Object.assign(new Error("ตัวละครนี้ไม่ได้ใช้บริการอวตาร AI"), { statusCode: 400 });
+    await closeActiveStream();
+    const init = await c.createStream(svc.agentId);
+    activeStream = { agentId: svc.agentId, streamId: init.streamId, sessionId: init.sessionId, characterId };
+    return { streamId: init.streamId, offer: init.offer, iceServers: init.iceServers };
+  });
+  app.post<{ Params: { id: string } }>("/api/avatar-service/streams/:id/sdp", async (req) => {
+    const s = streamFor(req.params.id);
+    const { answer } = parse(z.object({ answer: z.object({ type: z.literal("answer"), sdp: z.string() }) }), req.body);
+    await needDid().sdp(s.agentId, s.streamId, s.sessionId, answer);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/avatar-service/streams/:id/ice", async (req) => {
+    const s = streamFor(req.params.id);
+    const c = parse(z.object({ candidate: z.string().optional(), sdpMid: z.string().nullable().optional(), sdpMLineIndex: z.number().nullable().optional() }), req.body ?? {});
+    await needDid().ice(s.agentId, s.streamId, s.sessionId, c);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/avatar-service/streams/:id/speak", async (req, reply) => {
+    const s = streamFor(req.params.id);
+    const { segmentId } = parse(z.object({ segmentId: z.string() }), req.body);
+    const text = spokenSegments.get(segmentId);
+    if (!text) return reply.code(404).send({ error: "ไม่พบประโยคนี้ในไลฟ์" });
+    const ch = store.get("characters", s.characterId);
+    const voiceId = ch?.look.service?.voiceId ?? defaultThaiVoice(undefined);
+    const r = await needDid().speak(s.agentId, s.streamId, s.sessionId, text, voiceId);
+    return { duration: r.duration ?? null };
+  });
+  app.delete<{ Params: { id: string } }>("/api/avatar-service/streams/:id", async (req) => {
+    if (activeStream?.streamId === req.params.id) await closeActiveStream();
+    return { ok: true };
+  });
+
   app.get("/api/health", async () => ({ ok: true, llm: brain.usesLlm ? store.db.ai?.provider ?? opts.llm?.id : "offline-templates", tts: tts.id, tiktok: tiktok.id }));
   app.get("/api/policy", async () => ({ prohibited: PROHIBITED_CAPABILITIES, tiktokProvider: tiktok.id, tiktokCapabilities: tiktok.capabilities, unsupportedMessage: UNSUPPORTED_TIKTOK_MESSAGE }));
 
@@ -593,6 +705,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   });
   app.addHook("onClose", async () => {
     if (autopilot?.timer) clearTimeout(autopilot.timer);
+    await closeActiveStream();
     director.stop();
     store.flush();
   });

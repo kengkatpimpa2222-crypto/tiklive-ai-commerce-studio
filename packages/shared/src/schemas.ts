@@ -54,7 +54,16 @@ export const characterInput = z.object({
     outfit: z.string(),
     accent: z.string(),
     hairStyle: z.enum(["long", "bob", "ponytail", "short", "side"]).optional(),
-    style: z.enum(["cartoon", "photo"]).optional(),
+    style: z.enum(["cartoon", "photo", "service"]).optional(),
+    service: z
+      .object({
+        provider: z.literal("did"),
+        agentId: z.string().min(1),
+        presenterId: z.string().min(1),
+        imageUrl: z.string(),
+        voiceId: z.string().regex(/^[a-z]{2}-[A-Z]{2}-\w+$/),
+      })
+      .optional(),
     photo: z
       .object({
         imageUrl: z.string().regex(/^(https?:\/\/|\/uploads\/)/),
@@ -65,7 +74,9 @@ export const characterInput = z.object({
         consent: z.literal(true, { errorMap: () => ({ message: "ต้องยืนยันสิทธิ์ในการใช้รูปและความยินยอมของบุคคลในรูป" }) }),
       })
       .optional(),
-  }).refine((l) => l.style !== "photo" || !!l.photo, { message: "โหมดรูปถ่ายต้องอัปโหลดรูปใบหน้าก่อน" }),
+  })
+    .refine((l) => l.style !== "photo" || !!l.photo, { message: "โหมดรูปถ่ายต้องอัปโหลดรูปใบหน้าก่อน" })
+    .refine((l) => l.style !== "service" || !!l.service, { message: "ตัวละครเหมือนคนจริงต้องเลือกจากคลังตัวละครของบริการอวตาร AI" }),
 });
 
 const scriptStep = z.discriminatedUnion("kind", [

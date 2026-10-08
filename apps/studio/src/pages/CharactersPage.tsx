@@ -79,8 +79,16 @@ export function CharactersPage() {
   return (
     <div className="page">
       <h1>ตัวละคร AI</h1>
+      <h2>เลือกตัวละครสำเร็จรูป</h2>
       <HostGallery
         busy={busy}
+        onUsedService={(c) => {
+          reload();
+          reloadMain();
+          setSel(c);
+          setErr(`เพิ่ม "${c.name}" แล้ว และตั้งเป็นพิธีกรหลัก`);
+          document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" });
+        }}
         onUse={usePreset}
         onPhoto={() => {
           set({ look: { ...sel.look, style: "photo" } });
@@ -146,6 +154,24 @@ export function CharactersPage() {
           <button onClick={test}>ทดลองเสียง</button>
         </div>
         <h2 id="look">หน้าตา</h2>
+        {sel.look.style === "service" && sel.look.service ? (
+          <div className="row service-look">
+            <img src={sel.look.service.imageUrl} alt="" />
+            <div>
+              <p>ตัวละครคนจริงจาก D-ID หน้าตา การขยับปาก และเสียงมาจากบริการ (ใช้เครดิต D-ID ตอนพูด)</p>
+              <label>
+                เสียงพากย์ไทย
+                <select value={sel.look.service.voiceId} onChange={(e) => set({ look: { ...sel.look, service: { ...sel.look.service!, voiceId: e.target.value } } })}>
+                  <option value="th-TH-PremwadeeNeural">เปรมวดี (ผู้หญิง)</option>
+                  <option value="th-TH-AcharaNeural">อัจฉรา (ผู้หญิง)</option>
+                  <option value="th-TH-NiwatNeural">นิวัฒน์ (ผู้ชาย)</option>
+                </select>
+              </label>
+              <p className="muted">หมายเหตุ: เปลี่ยนเสียงได้ แต่หน้าตาเปลี่ยนไม่ได้ ถ้าอยากได้คนอื่นให้เลือกใหม่จากคลังด้านบน</p>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="chips">
           <button className={sel.look.style !== "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "cartoon" } })}>ตัวการ์ตูน</button>
           <button className={sel.look.style === "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "photo" } })}>เหมือนคนจริง (จากรูปถ่าย)</button>
@@ -171,6 +197,8 @@ export function CharactersPage() {
             </label>
           ))}
         </div>
+        )}
+        </>
         )}
         <div className="row">
           <button className="primary" onClick={save}>บันทึก</button>
