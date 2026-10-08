@@ -1,4 +1,4 @@
-import type { HostCharacter } from "@tlai/shared";
+import type { HostCharacter, HostEnergy } from "@tlai/shared";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useData } from "../lib/useData";
@@ -71,6 +71,14 @@ export function CharactersPage() {
           <select value={sel.politeParticle} onChange={(e) => set({ politeParticle: e.target.value as "ค่ะ" | "ครับ" })}>
             <option>ค่ะ</option>
             <option>ครับ</option>
+          </select>
+        </label>
+        <label>
+          พลังงานตอนไลฟ์
+          <select value={sel.energy ?? "high"} onChange={(e) => set({ energy: e.target.value as HostEnergy })}>
+            <option value="high">สดใส มีพลัง ขยับมือบ่อย พูดเร็วขึ้นนิด (แนะนำสำหรับไลฟ์ขายของ)</option>
+            <option value="normal">ปกติ</option>
+            <option value="calm">สุขุม ใจเย็น</option>
           </select>
         </label>
         <h2>เสียง</h2>

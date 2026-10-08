@@ -158,7 +158,7 @@ export class LiveDirector {
   say(text: string, opts: { emotion?: Emotion; gesture?: Gesture; priority?: boolean } = {}): { ok: boolean; reason?: string } {
     const check = this.check(text);
     if (!check.ok) return check;
-    const segs = annotate(text, "system", { productId: this.currentProductId ?? undefined });
+    const segs = this.seg(text, "system", { productId: this.currentProductId ?? undefined });
     if (segs[0] && opts.emotion) segs[0].emotion = opts.emotion;
     if (segs[0] && opts.gesture) segs[0].gesture = opts.gesture;
     this.enqueue(segs, opts.priority ?? true);
@@ -181,7 +181,7 @@ export class LiveDirector {
     const out = await this.d.brain.pitch(p, this.brainCtx());
     if (filler && this.questionsWaiting()) return;
     if (out.issues.length) this.log({ type: "blocked_text", productId, text: out.issues.map((i) => i.code).join(",") });
-    this.enqueue(annotate(out.text, "pitch", { productId }), priority);
+    this.enqueue(this.seg(out.text, "pitch", { productId }), priority);
   }
 
   async readPromo(promotionId: string, priority = true): Promise<void> {
@@ -189,7 +189,7 @@ export class LiveDirector {
     if (!promo || !promo.active) return;
     const out = await this.d.brain.promo(promo, this.brainCtx());
     this.log({ type: "promo_read", text: promo.title });
-    this.enqueue(annotate(out.text, "promo", { productId: this.currentProductId ?? undefined, baseEmotion: "excited" }), priority);
+    this.enqueue(this.seg(out.text, "promo", { productId: this.currentProductId ?? undefined, baseEmotion: "excited" }), priority);
   }
 
   setScene(sceneId: string): void {
@@ -240,7 +240,7 @@ export class LiveDirector {
     this.d.store.update("questions", q.id, { status: "answered", answer: text });
     this.d.send({ type: "question", question: { ...q, status: "answered", answer: text } });
     this.log({ type: "answer", text });
-    this.enqueue(annotate(text, "qa", { productId: this.currentProductId ?? undefined }), true);
+    this.enqueue(this.seg(text, "qa", { productId: this.currentProductId ?? undefined }), true);
     return { ok: true };
   }
 
@@ -319,7 +319,7 @@ export class LiveDirector {
           // Writing a line can take a few seconds with an AI provider; questions that came in
           // meanwhile go first, and this line is dropped rather than wedged between answers.
           if (this.questionsWaiting()) return;
-          this.queue.push(...annotate(out.text, "system", { productId: product?.id }));
+          this.queue.push(...this.seg(out.text, "system", { productId: product?.id }));
         });
         // Uneven gaps sound like someone thinking, not a timer.
       }, (this.d.freeTalkAfterMs ?? 15_000) * (0.6 + Math.random() * 0.8));
@@ -333,7 +333,7 @@ export class LiveDirector {
         if (this.saidWithin(step.text, 20 * 60_000)) return;
         const check = this.check(step.text);
         if (!check.ok) return;
-        const segs = annotate(step.text, "script", { productId: this.currentProductId ?? undefined });
+        const segs = this.seg(step.text, "script", { productId: this.currentProductId ?? undefined });
         if (segs[0] && step.emotion) segs[0].emotion = step.emotion;
         if (segs[0] && step.gesture) segs[0].gesture = step.gesture;
         this.queue.push(...segs);
@@ -412,7 +412,7 @@ export class LiveDirector {
 
   private enqueueDisclosure(text: string): void {
     this.lastDisclosureAt = this.now();
-    this.queue.unshift(...annotate(text, "disclosure", { baseEmotion: "calm" }).map((s) => ({ ...s, source: "disclosure" as const })));
+    this.queue.unshift(...this.seg(text, "disclosure", { baseEmotion: "calm" }).map((s) => ({ ...s, source: "disclosure" as const })));
   }
 
   private check(text: string, productId?: string): { ok: boolean; reason?: string } {
@@ -451,6 +451,11 @@ export class LiveDirector {
     // Script lines are split into sentences when spoken, so compare against the joined recent speech.
     const recent = this.spoken.filter((s) => s.at >= since).map((s) => s.text.replace(/\s+/g, "")).join("");
     return t.length > 0 && recent.includes(t);
+  }
+
+  /** Splits text into speech segments in the current character's energy. */
+  private seg(text: string, source: SpeechSegment["source"], opts: Parameters<typeof annotate>[2] = {}): SpeechSegment[] {
+    return annotate(text, source, { ...opts, energy: this.character().energy });
   }
 
   /** What the host currently knows (lineup, promos, FAQ, recent speech), e.g. for trying out an AI provider. */

@@ -115,11 +115,22 @@ describe("HostBrain (LLM guarded)", () => {
 
 describe("annotate", () => {
   it("adds emotion, gesture and pauses per sentence", () => {
-    const segs = annotate("สวัสดีค่ะ ทุกคน วันนี้มีโปรส่งฟรีค่ะ ขอบคุณที่แวะมานะคะ", "script");
+    const segs = annotate("สวัสดีค่ะ ทุกคน วันนี้มีโปรส่งฟรีค่ะ ขอบคุณที่แวะมานะคะ", "script", { energy: "normal" });
     expect(segs.length).toBeGreaterThanOrEqual(3);
     expect(segs[0]!.gesture).toBe("wave");
     expect(segs.some((s) => s.emotion === "excited")).toBe(true);
     expect(segs[segs.length - 1]!.pauseAfterMs).toBe(900);
+  });
+  it("makes a lively host smile, move more and pause less", () => {
+    const text = "เซรั่มตัวนี้เนื้อบางเบา ซึมไวมาก ไม่เหนอะหนะเลย ใช้ได้ทั้งเช้าและก่อนนอน กลิ่นก็ไม่ฉุน พกพาง่ายด้วย";
+    const calm = annotate(text, "pitch", { energy: "calm" });
+    const high = annotate(text, "pitch", { energy: "high" });
+    const moves = (s: typeof high) => s.filter((x) => x.gesture !== "none").length;
+    expect(moves(high)).toBeGreaterThan(moves(calm));
+    expect(high.every((x) => x.emotion !== "neutral")).toBe(true);
+    expect(high.at(-1)!.pauseAfterMs).toBeLessThan(calm.at(-1)!.pauseAfterMs);
+    // Lively is the default.
+    expect(annotate(text, "pitch").map((x) => x.pauseAfterMs)).toEqual(high.map((x) => x.pauseAfterMs));
   });
 });
 

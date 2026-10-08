@@ -60,6 +60,9 @@ export class AvatarController {
   private speech: SpeechState | null = null;
   private mouthOpen = 0;
   private emphasisNodAt = -1;
+  /** 0.75 calm .. 1 normal .. 1.35 lively: scales motion, gesture rate and smiles. */
+  private liveliness = 1.35;
+  private lastGestureEnd = 0;
 
   constructor(seed = 7) {
     this.seed = seed;
@@ -67,6 +70,11 @@ export class AvatarController {
     this.scheduleBlink();
     this.nextSaccadeAt = 400;
     this.nextIdleGestureAt = 8000;
+  }
+
+  /** How lively the host is ("calm" | "normal" | "high", default high). */
+  setEnergy(level: "calm" | "normal" | "high" | undefined): void {
+    this.liveliness = level === "calm" ? 0.75 : level === "normal" ? 1 : 1.35;
   }
 
   setEmotion(e: Emotion, holdMs = 0): void {
@@ -128,7 +136,7 @@ export class AvatarController {
       viseme = s.viseme;
       mouthTarget = this.speech.amplitude !== undefined ? s.open * 0.4 + this.speech.amplitude * 0.6 : s.open;
       // Emphasis nods on long open vowels.
-      if (s.open > 0.9 && t - this.emphasisNodAt > 1400 && this.rng() < 0.08) this.emphasisNodAt = t;
+      if (s.open > 0.9 && t - this.emphasisNodAt > 1400 / this.liveliness && this.rng() < 0.08 * this.liveliness ** 2) this.emphasisNodAt = t;
       if (st > this.speech.durationMs + 120) this.speech = null;
     }
     this.mouthOpen += (mouthTarget - this.mouthOpen) * (1 - Math.exp(-dtMs / 45));
@@ -159,22 +167,36 @@ export class AvatarController {
     this.gaze.y += (this.gazeTarget.y - this.gaze.y) * g;
 
     // Idle gestures so the host never freezes between lines.
+    const live = this.liveliness;
     if (!this.speech && this.gesture === "none" && t >= this.nextIdleGestureAt) {
       this.playGesture(this.rng() < 0.5 ? "nod" : "open_palms");
-      this.nextIdleGestureAt = t + 9000 + this.rng() * 9000;
+      this.nextIdleGestureAt = t + (9000 + this.rng() * 9000) / live ** 2;
+    }
+    // A lively seller talks with their hands: a beat gesture during long stretches of speech.
+    if (this.speech && this.gesture === "none" && live > 1.2 && t - this.lastGestureEnd > 2600 && this.rng() < 0.02) {
+      const beats: Gesture[] = ["open_palms", "nod", "count_fingers", "point_product"];
+      this.playGesture(beats[Math.floor(this.rng() * beats.length)]!);
     }
     let arms = REST_POSE;
     if (this.gesture !== "none") {
       const p = (t - this.gestureStart) / GESTURE_DURATION_MS[this.gesture];
-      if (p >= 1) this.gesture = "none";
-      else arms = gesturePose(this.gesture, p, this.face.energy);
+      if (p >= 1) {
+        this.gesture = "none";
+        this.lastGestureEnd = t;
+      } else arms = gesturePose(this.gesture, p, this.face.energy * live);
     }
 
     // Head: slow drift + breathing + speech bob + emphasis nod + gesture contribution.
-    const energy = this.face.energy;
-    const speakBob = this.speech ? Math.sin(t * 0.011) * 1.2 * this.mouthOpen : 0;
+    const energy = this.face.energy * live;
+    const speakBob = this.speech ? Math.sin(t * 0.011) * 1.2 * live * this.mouthOpen : 0;
+    // Lively talkers also sway the head side to side with the rhythm of speech.
+    const speakSway = this.speech ? Math.sin(t * 0.0047 + 1) * 2.2 * (live - 0.75) * (0.4 + this.mouthOpen) : 0;
     const nodP = this.emphasisNodAt >= 0 ? (t - this.emphasisNodAt) / 450 : 2;
-    const nod = nodP < 1 ? Math.sin(nodP * Math.PI) * 4 : 0;
+    const nod = nodP < 1 ? Math.sin(nodP * Math.PI) * 4 * live : 0;
+    const face = { ...this.face };
+    // Smile through the talk and lift the brows on emphasis.
+    face.smile = Math.min(1, face.smile + (live - 1) * 0.5);
+    face.browRaise = Math.min(1, face.browRaise + (nodP < 1 ? Math.sin(nodP * Math.PI) * 0.35 * live : 0));
     const breath = (Math.sin((t / 4200) * Math.PI * 2) + 1) / 2;
 
     return {
@@ -184,12 +206,12 @@ export class AvatarController {
       eyeOpenR: eyeOpen,
       gazeX: this.gaze.x,
       gazeY: this.gaze.y,
-      headYaw: drift(t, this.seed) * 6 * energy + arms.headYaw + this.gaze.x * 3,
+      headYaw: drift(t, this.seed) * 6 * energy + arms.headYaw + this.gaze.x * 3 + speakSway,
       headPitch: drift(t, this.seed + 11) * 3 * energy + speakBob + nod + arms.headPitch,
       headRoll: drift(t, this.seed + 23) * 2.5 + this.face.headTilt,
       bodySway: drift(t, this.seed + 37) * 4 * energy,
       breath,
-      face: { ...this.face },
+      face,
       arms,
       speaking: this.speech !== null,
       emotion: this.emotion,

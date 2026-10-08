@@ -49,7 +49,7 @@ export class SpeechEngine {
     const u = new SpeechSynthesisUtterance(seg.text);
     u.voice = pickVoice(c)!;
     u.lang = c.voice.lang;
-    const { rate, pitch } = prosodyFor(seg.emotion, c.voice);
+    const { rate, pitch } = prosodyFor(seg.emotion, energized(c));
     u.rate = rate;
     u.pitch = pitch;
     const est = estimateDurationMs(seg.text, rate);
@@ -75,7 +75,7 @@ export class SpeechEngine {
     const data = (await res.json()) as { audio: string | null; mime?: string; durationMs: number; visemes: VisemeFrame[] };
     if (!data.audio || this.cancelled) throw new Error("no audio");
     const audio = new Audio(`data:${data.mime};base64,${data.audio}`);
-    audio.playbackRate = prosodyFor(seg.emotion, { rate: 1, pitch: 1 }).rate;
+    audio.playbackRate = prosodyFor(seg.emotion, energized({ ...c, voice: { ...c.voice, rate: 1, pitch: 1 } })).rate;
     this.audio = audio;
     this.ctx ??= new AudioContext();
     const src = this.ctx.createMediaElementSource(audio);
@@ -103,7 +103,7 @@ export class SpeechEngine {
 
   /** No voice installed: animate from the text timeline and captions only. */
   private speakSilent(seg: SpeechSegment, c: HostCharacter, cb: SpeechCallbacks): void {
-    const d = estimateDurationMs(seg.text, c.voice.rate);
+    const d = estimateDurationMs(seg.text, energized(c).rate);
     cb.onStart(buildVisemeTimeline(seg.text, d), d);
     this.timer = window.setTimeout(() => !this.cancelled && cb.onEnd(), d);
   }
@@ -112,4 +112,10 @@ export class SpeechEngine {
 export function pickVoice(c: HostCharacter): SpeechSynthesisVoice | undefined {
   const voices = window.speechSynthesis?.getVoices() ?? [];
   return voices.find((v) => v.name === c.voice.voice) ?? voices.find((v) => v.lang.replace("_", "-").startsWith(c.voice.lang.slice(0, 2)));
+}
+
+/** A lively host speaks a little quicker and brighter; a calm one a little slower. */
+function energized(c: HostCharacter): { rate: number; pitch: number } {
+  const e = c.energy ?? "high";
+  return { rate: c.voice.rate * (e === "high" ? 1.08 : e === "calm" ? 0.94 : 1), pitch: c.voice.pitch * (e === "high" ? 1.04 : 1) };
 }

@@ -39,6 +39,7 @@ export const characterInput = z.object({
   disclosureLabel: z.string().min(4),
   persona: z.string().default(""),
   politeParticle: z.enum(["ค่ะ", "ครับ"]).default("ค่ะ"),
+  energy: z.enum(["calm", "normal", "high"]).optional(),
   voice: z.object({
     provider: z.enum(["browser", "openai"]).default("browser"),
     voice: z.string().default(""),

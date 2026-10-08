@@ -92,6 +92,9 @@ export interface VoiceConfig {
   pitch: number;
 }
 
+export const HOST_ENERGIES = ["calm", "normal", "high"] as const;
+export type HostEnergy = (typeof HOST_ENERGIES)[number];
+
 export interface HostCharacter {
   id: string;
   name: string;
@@ -99,6 +102,8 @@ export interface HostCharacter {
   disclosureLabel: string;
   persona: string;
   politeParticle: "ค่ะ" | "ครับ";
+  /** How lively the host is on air: gestures, head motion, smiles, speaking pace. Default "high". */
+  energy?: HostEnergy;
   voice: VoiceConfig;
   look: {
     skin: string;

@@ -66,6 +66,7 @@ export function StagePage() {
       switch (cmd.type) {
         case "character":
           setCharacter(cmd.character);
+          c.setEnergy(cmd.character.energy);
           break;
         case "scene":
           setScene(cmd.scene);
