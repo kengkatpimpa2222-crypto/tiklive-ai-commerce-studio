@@ -16,7 +16,6 @@ Settings → Time & language → Speech → Manage voices / Add voices → เ�
 ## 2. ติดตั้งแอป
 
 - **แบบติดตั้ง:** ดับเบิลคลิก `TikLive-AI-Commerce-Studio-Setup-0.3.0.exe`
-- **แบบไม่ต้องติดตั้ง:** ดับเบิลคลิก `TikLive-AI-Commerce-Studio-Portable-0.3.0.exe`
 
 ไฟล์ยังไม่ได้เซ็นรับรอง Windows อาจขึ้น "Windows protected your PC" ให้กด **More info → Run anyway**
 
