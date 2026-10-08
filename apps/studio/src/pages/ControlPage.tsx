@@ -260,6 +260,14 @@ export function ControlPage() {
           <h2>หน้าจอออกอากาศ</h2>
           <span className={`pill ${state?.stageConnected ? "on" : "off"}`}>{state?.stageConnected ? "Stage เชื่อมต่อแล้ว" : "ยังไม่เปิด Stage"}</span>
         </div>
+        {characters.length > 0 && !characters.some((c) => c.look.style === "photo") && (
+          <div className="realistic-cta">
+            <div>
+              <b>ตอนนี้ตัวละครเป็นแบบการ์ตูน</b> อยากได้แบบคนเหมือนจริง ให้ใส่รูปคน 1 รูป (รูปคนที่สร้างจาก AI หรือรูปคนจริงที่ยินยอม) แล้วตัวละครจะพูด กะพริบตา ขยับหัวได้จากรูปนั้น
+            </div>
+            <a className="button primary" href="#/characters/photo">ตั้งค่าตัวละครเหมือนคนจริง</a>
+          </div>
+        )}
         <div className="preview-frame">
           <iframe title="stage-preview" src="#/stage?preview" />
         </div>

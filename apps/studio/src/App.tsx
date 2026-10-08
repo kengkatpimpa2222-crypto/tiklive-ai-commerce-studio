@@ -19,6 +19,8 @@ const NAV = [
   ["/summary", "สรุปผล LIVE"],
 ] as const;
 
+document.title = `TikLive AI Commerce Studio v${__APP_VERSION__}`;
+
 export function App() {
   const route = useHash();
   if (route.startsWith("/stage")) return <StagePage />;
@@ -42,7 +44,7 @@ export function App() {
     <div className="shell">
       <nav className="nav">
         <div className="brand">
-          TikLive <b>AI</b> Commerce Studio
+          TikLive <b>AI</b> Commerce Studio <span className="ver" title="เวอร์ชันที่ติดตั้งอยู่">v{__APP_VERSION__}</span>
         </div>
         {NAV.map(([href, label]) => (
           <a key={href} href={`#${href}`} className={(href === "/" ? route === "/" : route.startsWith(href)) ? "active" : ""}>

@@ -17,8 +17,14 @@ export function CharactersPage() {
     return () => window.speechSynthesis?.removeEventListener("voiceschanged", load);
   }, []);
   useEffect(() => {
-    if (!sel && chars[0]) setSel(chars[0]);
+    if (sel || !chars[0]) return;
+    // Arriving from the control room's "realistic host" button opens the photo editor straight away.
+    setSel(location.hash.includes("/photo") ? { ...chars[0], look: { ...chars[0].look, style: "photo" } } : chars[0]);
   }, [chars, sel]);
+
+  useEffect(() => {
+    if (sel && location.hash.includes("/photo")) document.getElementById("look")?.scrollIntoView({ behavior: "smooth" });
+  }, [!!sel]);
 
   if (!sel) return <div className="page">กำลังโหลด…</div>;
   const set = (patch: Partial<HostCharacter>) => setSel({ ...sel, ...patch });
@@ -93,7 +99,7 @@ export function CharactersPage() {
           <label>ระดับเสียง <input type="range" min={0.5} max={1.5} step={0.05} value={sel.voice.pitch} onChange={(e) => set({ voice: { ...sel.voice, pitch: Number(e.target.value) } })} /></label>
           <button onClick={test}>ทดลองเสียง</button>
         </div>
-        <h2>หน้าตา</h2>
+        <h2 id="look">หน้าตา</h2>
         <div className="chips">
           <button className={sel.look.style !== "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "cartoon" } })}>ตัวการ์ตูน</button>
           <button className={sel.look.style === "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "photo" } })}>เหมือนคนจริง (จากรูปถ่าย)</button>

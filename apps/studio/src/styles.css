@@ -34,6 +34,7 @@ h3 { font-size: 13px; color: var(--muted); margin: 12px 0 6px; font-weight: 600;
 .nav { display: flex; gap: 4px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); background: #12141b; flex-wrap: wrap; }
 .nav .brand { font-weight: 700; margin-right: 16px; }
 .nav .brand b { color: var(--accent); }
+.nav .brand .ver { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; vertical-align: middle; }
 .nav a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
 .nav a.active { color: var(--text); background: #222736; }
 .nav .stage-link { margin-left: auto; color: var(--accent2); }
@@ -193,3 +194,9 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .speaking-badge .mic { display: grid; place-items: center; width: 5cqw; height: 5cqw; border-radius: 50%; background: linear-gradient(140deg, #4aa3ff, #2563eb); font-size: 2.8cqw; }
 .speaking-badge .bars { display: flex; align-items: center; gap: 0.5cqw; height: 3cqw; }
 .speaking-badge .bars i { width: 0.6cqw; border-radius: 0.3cqw; background: #7cc4ff; transition: height 0.08s linear; }
+
+/* Nudge toward the realistic host while the cartoon is on air */
+.realistic-cta { display: flex; align-items: center; gap: 12px; margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: linear-gradient(90deg, #2a1830, #1b2240); border: 1px solid #5b3a6e; }
+.realistic-cta div { flex: 1; font-size: 13px; line-height: 1.5; }
+.realistic-cta a { white-space: nowrap; }
+.realistic-cta a.button { margin: 0; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
