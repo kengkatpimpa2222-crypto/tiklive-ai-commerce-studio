@@ -95,6 +95,9 @@ export interface VoiceConfig {
 export const HOST_ENERGIES = ["calm", "normal", "high"] as const;
 export type HostEnergy = (typeof HOST_ENERGIES)[number];
 
+export const HAIR_STYLES = ["long", "bob", "ponytail", "short", "side"] as const;
+export type HairStyle = (typeof HAIR_STYLES)[number];
+
 export interface HostCharacter {
   id: string;
   name: string;
@@ -111,6 +114,8 @@ export interface HostCharacter {
     eyes: string;
     outfit: string;
     accent: string;
+    /** Cartoon hair cut. "short" and "side" are men's cuts (no lashes or earrings). Default "long". */
+    hairStyle?: HairStyle;
     /** "cartoon" draws the built-in SVG character; "photo" animates an uploaded portrait. */
     style?: "cartoon" | "photo";
     photo?: PhotoLook;
@@ -121,6 +126,14 @@ export interface HostCharacter {
  * A realistic host made from one portrait photo. Face landmarks are detected once on
  * upload (on the user's own PC) and the stage animates the photo by warping a mesh.
  */
+/** A ready-made host in the character gallery; using one adds a copy the seller can edit. */
+export interface HostPreset {
+  id: string;
+  /** Short description shown on the gallery card. */
+  tagline: string;
+  character: Omit<HostCharacter, "id">;
+}
+
 export interface PhotoLook {
   imageUrl: string;
   width: number;

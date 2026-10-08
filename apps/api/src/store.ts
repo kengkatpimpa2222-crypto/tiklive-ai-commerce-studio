@@ -16,9 +16,11 @@ export interface Db {
   settings: StudioSettings;
   /** AI provider for the host's speech. Holds the API key, so it is never sent to the stage. */
   ai?: AiConfig;
+  /** The host that goes on air when nothing else is picked (autopilot, a freshly opened stage). */
+  mainCharacterId?: string;
 }
 
-export type Collection = Exclude<keyof Db, "settings" | "ai">;
+export type Collection = Exclude<keyof Db, "settings" | "ai" | "mainCharacterId">;
 type Lists = Pick<Db, Collection>;
 
 const seed = (): Db => ({
@@ -83,6 +85,16 @@ export class Store {
 
   setAi(cfg: AiConfig): void {
     this.db.ai = cfg;
+    this.save();
+  }
+
+  /** The main host, falling back to the first character when none is set or it was deleted. */
+  mainCharacter(): HostCharacter | undefined {
+    return (this.db.mainCharacterId && this.get("characters", this.db.mainCharacterId)) || this.db.characters[0];
+  }
+
+  setMainCharacter(id: string): void {
+    this.db.mainCharacterId = id;
     this.save();
   }
 

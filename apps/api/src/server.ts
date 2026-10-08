@@ -3,6 +3,7 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { AI_PRESETS, BLOCKED_IMPORT_HOSTS, createLlm, generateScript, importProduct, metaToText, parsePageMeta, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
 import { summaryCsv, summaryMarkdown } from "./export.js";
+import { hostPresets } from "./seed.js";
 import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
   characterInput,
@@ -154,7 +155,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
           if (role === "stage") director.setStageConnected(true);
           // Bring a freshly opened stage (e.g. OBS reload) up to date.
           for (const cmd of lastByType.values()) socket.send(JSON.stringify(cmd));
-          if (!lastByType.has("character")) socket.send(JSON.stringify({ type: "character", character: store.list("characters")[0] }));
+          if (!lastByType.has("character")) socket.send(JSON.stringify({ type: "character", character: store.mainCharacter() }));
           if (!lastByType.has("settings")) socket.send(JSON.stringify({ type: "settings", settings: store.db.settings }));
         } else socket.send(JSON.stringify({ type: "state", state: director.state() }));
       } else if (msg.type === "speech_done" && role === "stage") director.onSpeechDone(msg.segmentId);
@@ -186,6 +187,22 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   crud("products", "products", productInput, "prod");
   crud("promotions", "promotions", promotionInput, "promo");
   crud("scenes", "scenes", sceneInput, "scene");
+  // Gallery and main host. Registered before the CRUD routes so "/presets" and "/main" are not read as ids.
+  app.get("/api/characters/presets", async () => hostPresets);
+  app.post<{ Params: { id: string } }>("/api/characters/presets/:id/use", async (req, reply) => {
+    const preset = hostPresets.find((p) => p.id === req.params.id);
+    if (!preset) return reply.code(404).send({ error: "not found" });
+    const c = store.insert("characters", { id: newId("char"), ...structuredClone(preset.character) });
+    store.setMainCharacter(c.id);
+    return reply.code(201).send(c);
+  });
+  app.get("/api/characters/main", async () => ({ id: store.mainCharacter()?.id ?? null }));
+  app.put("/api/characters/main", async (req, reply) => {
+    const { id } = parse(z.object({ id: z.string() }), req.body);
+    if (!store.get("characters", id)) return reply.code(404).send({ error: "not found" });
+    store.setMainCharacter(id);
+    return { id };
+  });
   crud("characters", "characters", characterInput, "char");
   crud("faqs", "faqs", faqInput, "faq");
 
@@ -302,7 +319,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       }),
       req.body,
     );
-    const character = (input.characterId && store.get("characters", input.characterId)) || store.list("characters")[0]!;
+    const character = (input.characterId && store.get("characters", input.characterId)) || store.mainCharacter()!;
     const products = input.productIds.map((id) => store.get("products", id)).filter((p): p is NonNullable<typeof p> => !!p);
     if (products.length === 0) return reply.code(400).send({ error: "ไม่พบสินค้าที่เลือก" });
     const plan = generateScript({ ...input, character, products, promotions: store.list("promotions"), scenes: store.list("scenes") });
@@ -371,7 +388,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   // ---- TTS (remote provider audio for the stage) ----
   app.post("/api/tts", async (req, reply) => {
     const { text, characterId } = parse(z.object({ text: z.string().min(1).max(600), characterId: z.string().optional() }), req.body);
-    const c = (characterId && store.get("characters", characterId)) || store.list("characters")[0]!;
+    const c = (characterId && store.get("characters", characterId)) || store.mainCharacter()!;
     const r = await tts.synthesize(text, c.voice);
     if (!r.audio) return { durationMs: r.durationMs, visemes: r.visemes, audio: null };
     return { durationMs: r.durationMs, visemes: r.visemes, mime: r.mime, audio: Buffer.from(r.audio).toString("base64") };
@@ -451,8 +468,12 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const products = store.list("products").filter((p) => p.status === "ACTIVE");
     if (!products.length) return reply.code(422).send({ error: "ยังไม่มีสินค้าที่เปิดขาย เพิ่มสินค้าก่อน" });
     const chars = store.list("characters");
-    // The realistic photo host, if one is set up, goes on air; otherwise the first character.
-    const character = (characterId && store.get("characters", characterId)) || chars.find((c) => c.look.style === "photo" && c.look.photo) || chars[0];
+    // The host the seller picked as main goes on air; otherwise a realistic photo host if one is set up; otherwise the first.
+    const character =
+      (characterId && store.get("characters", characterId)) ||
+      (store.db.mainCharacterId && store.get("characters", store.db.mainCharacterId)) ||
+      chars.find((c) => c.look.style === "photo" && c.look.photo) ||
+      chars[0];
     if (!character) return reply.code(422).send({ error: "ยังไม่มีตัวละคร" });
     const now = new Date();
     const s: LiveSession = {

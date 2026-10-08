@@ -1,6 +1,7 @@
 import type { AvatarFrame } from "@tlai/avatar";
 import type { HostCharacter } from "@tlai/shared";
 import type { Viseme } from "@tlai/tts";
+import { useId } from "react";
 
 /** Mouth width/height factors per viseme shape. */
 const MOUTH: Record<Viseme, { w: number; h: number; round: number }> = {
@@ -60,9 +61,32 @@ function shade(hex: string, k: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+/** Back hair (behind the head and shoulders) per cut. */
+const BACK_HAIR: Record<string, string> = {
+  long: "M-210 -40 C -230 -260, 230 -260, 210 -40 L 230 250 C 120 300, -120 300, -230 250 Z",
+  bob: "M-212 -40 C -232 -262, 232 -262, 212 -40 L 222 120 C 150 150, -150 150, -222 120 Z",
+  ponytail: "M-190 -40 C -212 -262, 212 -262, 190 -40 Z M 120 -190 C 260 -230, 300 -40, 250 160 C 230 220, 200 240, 190 200 C 230 60, 200 -80, 120 -150 Z",
+  short: "M-184 -30 C -196 -268, 196 -268, 184 -30 Z",
+  side: "M-186 -30 C -198 -270, 198 -270, 186 -30 Z",
+};
+
+/** Bangs / front hair per cut. */
+const FRONT_HAIR: Record<string, string> = {
+  long: "M-182 -60 C -170 -230, 170 -250, 186 -50 C 120 -150, 40 -120, -10 -170 C -60 -110, -130 -130, -182 -60 Z",
+  bob: "M-186 -40 C -180 -240, 180 -250, 188 -40 C 150 -120, 120 -110, 80 -112 C 20 -118, -40 -110, -100 -114 C -140 -112, -170 -100, -186 -40 Z",
+  ponytail: "M-178 -70 C -168 -238, 168 -248, 180 -70 C 140 -170, 60 -190, 10 -186 C -50 -184, -130 -170, -178 -70 Z",
+  short: "M-180 -50 C -186 -262, 186 -270, 182 -50 C 168 -110, 130 -136, 70 -130 C 30 -142, -30 -142, -70 -130 C -130 -136, -168 -110, -180 -50 Z",
+  side: "M-184 -40 C -190 -270, 190 -276, 186 -60 C 172 -128, 128 -150, 50 -146 C -30 -140, -100 -112, -146 -70 C -162 -56, -174 -46, -184 -40 Z",
+};
+
 /** Stylized 2D virtual host. Every moving part is driven by an AvatarFrame. */
 export function Avatar({ frame: f, character }: { frame: AvatarFrame; character: HostCharacter }) {
   const L = character.look;
+  const cut = L.hairStyle && BACK_HAIR[L.hairStyle] ? L.hairStyle : "long";
+  const masc = cut === "short" || cut === "side";
+  // Several hosts can be on one page (the gallery), so gradient ids must be unique.
+  const uid = useId().replace(/:/g, "");
+  const id = (n: string) => `${n}-${uid}`;
   const yawX = f.headYaw * 2.2; // facial features shift with yaw
   const pitchY = f.headPitch * 1.6;
   const m = MOUTH[f.viseme];
@@ -79,35 +103,35 @@ export function Avatar({ frame: f, character }: { frame: AvatarFrame; character:
   return (
     <svg viewBox="-540 -960 1080 1920" className="avatar-svg" aria-label={`${character.name} AI virtual host`}>
       <defs>
-        <radialGradient id="av-face" cx="45%" cy="38%" r="70%">
+        <radialGradient id={id("av-face")} cx="45%" cy="38%" r="70%">
           <stop offset="0%" stopColor={shade(L.skin, 0.12)} />
           <stop offset="70%" stopColor={L.skin} />
           <stop offset="100%" stopColor={shade(L.skin, -0.12)} />
         </radialGradient>
-        <linearGradient id="av-hair" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={id("av-hair")} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor={shade(L.hair, 0.22)} />
           <stop offset="55%" stopColor={L.hair} />
           <stop offset="100%" stopColor={shade(L.hair, -0.3)} />
         </linearGradient>
-        <radialGradient id="av-iris" cx="50%" cy="40%" r="60%">
+        <radialGradient id={id("av-iris")} cx="50%" cy="40%" r="60%">
           <stop offset="0%" stopColor={shade(L.eyes, 0.35)} />
           <stop offset="100%" stopColor={shade(L.eyes, -0.35)} />
         </radialGradient>
-        <linearGradient id="av-outfit" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={id("av-outfit")} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={shade(L.outfit, 0.1)} />
           <stop offset="100%" stopColor={shade(L.outfit, -0.22)} />
         </linearGradient>
-        <filter id="av-soft" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id={id("av-soft")} x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="12" stdDeviation="18" floodColor="#000" floodOpacity="0.18" />
         </filter>
       </defs>
       <g transform={`translate(${f.bodySway} ${260}) scale(${breathScale})`}>
         {/* back hair */}
         <g transform={`translate(${yawX * 0.3} ${-330 + pitchY * 0.3}) rotate(${f.headRoll})`}>
-          <path d="M-210 -40 C -230 -260, 230 -260, 210 -40 L 230 250 C 120 300, -120 300, -230 250 Z" fill="url(#av-hair)" />
+          <path d={BACK_HAIR[cut]} fill={`url(#${id("av-hair")})`} />
         </g>
         {/* torso */}
-        <path d="M-190 -60 C -200 120, -230 420, -260 700 L 260 700 C 230 420, 200 120, 190 -60 C 120 -110, -120 -110, -190 -60 Z" fill="url(#av-outfit)" filter="url(#av-soft)" />
+        <path d="M-190 -60 C -200 120, -230 420, -260 700 L 260 700 C 230 420, 200 120, 190 -60 C 120 -110, -120 -110, -190 -60 Z" fill={`url(#${id("av-outfit")})`} filter={`url(#${id("av-soft")})`} />
         <path d="M-150 -70 C -90 -40, 90 -40, 150 -70" fill="none" stroke={shade(L.outfit, -0.25)} strokeWidth={6} opacity={0.5} />
         <path d="M-60 -95 L 0 0 L 60 -95" fill="none" stroke={L.accent} strokeWidth={14} strokeLinejoin="round" />
         <rect x={-48} y={-150} width={96} height={80} rx={30} fill={L.skin} />
@@ -124,11 +148,15 @@ export function Avatar({ frame: f, character }: { frame: AvatarFrame; character:
 
         {/* head */}
         <g transform={`translate(${yawX * 0.5} ${-330 + pitchY * 0.5}) rotate(${f.headRoll})`}>
-          <ellipse cx={0} cy={0} rx={175 - Math.abs(f.headYaw) * 1.2} ry={205} fill="url(#av-face)" />
+          <ellipse cx={0} cy={0} rx={175 - Math.abs(f.headYaw) * 1.2} ry={205} fill={`url(#${id("av-face")})`} />
           <ellipse cx={-178 + yawX * 0.2} cy={10} rx={22} ry={40} fill={L.skin} />
           <ellipse cx={178 + yawX * 0.2} cy={10} rx={22} ry={40} fill={L.skin} />
-          <circle cx={-180 + yawX * 0.2} cy={58} r={9} fill={L.accent} />
-          <circle cx={180 + yawX * 0.2} cy={58} r={9} fill={L.accent} />
+          {!masc && (
+            <>
+              <circle cx={-180 + yawX * 0.2} cy={58} r={9} fill={L.accent} />
+              <circle cx={180 + yawX * 0.2} cy={58} r={9} fill={L.accent} />
+            </>
+          )}
           <g transform={`translate(${yawX} ${pitchY})`}>
             {/* cheeks */}
             <ellipse cx={-92} cy={62} rx={34} ry={20} fill="#ff6b8a" opacity={0.12 + f.face.cheek * 0.3} />
@@ -139,7 +167,7 @@ export function Avatar({ frame: f, character }: { frame: AvatarFrame; character:
                 <ellipse rx={30} ry={Math.max(1.5, eyeRy)} fill="#fff" />
                 {eyeRy > 4 && (
                   <>
-                    <circle cx={gx} cy={gy} r={Math.min(17, eyeRy)} fill="url(#av-iris)" />
+                    <circle cx={gx} cy={gy} r={Math.min(17, eyeRy)} fill={`url(#${id("av-iris")})`} />
                     <circle cx={gx} cy={gy} r={Math.min(7, eyeRy * 0.4)} fill="#120c0a" />
                     <circle cx={gx + 5} cy={gy - 6} r={5} fill="#fff" />
                     <circle cx={gx - 5} cy={gy + 5} r={2.2} fill="#fff" opacity={0.8} />
@@ -147,12 +175,12 @@ export function Avatar({ frame: f, character }: { frame: AvatarFrame; character:
                 )}
                 <path d={`M -34 ${-eyeRy + 2} Q 0 ${-eyeRy - 12} 34 ${-eyeRy + 2}`} stroke="#1b1311" strokeWidth={6} fill="none" strokeLinecap="round" />
                 {/* outer-corner lashes */}
-                <path
+                {!masc && <path
                   d={ex < 0 ? `M -32 ${-eyeRy + 2} l -12 -8 M -26 ${-eyeRy - 3} l -9 -11` : `M 32 ${-eyeRy + 2} l 12 -8 M 26 ${-eyeRy - 3} l 9 -11`}
                   stroke="#1b1311"
                   strokeWidth={4}
                   strokeLinecap="round"
-                />
+                />}
                 {eyeRy > 6 && <path d={`M -24 ${eyeRy - 1} Q 0 ${eyeRy + 5} 24 ${eyeRy - 1}`} stroke={shade(L.skin, -0.3)} strokeWidth={2.5} fill="none" opacity={0.7} />}
               </g>
             ))}
@@ -178,10 +206,14 @@ export function Avatar({ frame: f, character }: { frame: AvatarFrame; character:
             </g>
           </g>
           {/* front hair / bangs */}
-          <path d="M-182 -60 C -170 -230, 170 -250, 186 -50 C 120 -150, 40 -120, -10 -170 C -60 -110, -130 -130, -182 -60 Z" fill="url(#av-hair)" />
+          <path d={FRONT_HAIR[cut]} fill={`url(#${id("av-hair")})`} />
           <path d="M-120 -170 C -80 -205, -20 -215, 30 -205" stroke={shade(L.hair, 0.45)} strokeWidth={10} fill="none" strokeLinecap="round" opacity={0.55} />
-          <circle cx={150} cy={-150} r={20} fill={L.accent} />
-          <circle cx={144} cy={-156} r={6} fill="#fff" opacity={0.6} />
+          {!masc && (
+            <>
+              <circle cx={150} cy={-150} r={20} fill={L.accent} />
+              <circle cx={144} cy={-156} r={6} fill="#fff" opacity={0.6} />
+            </>
+          )}
         </g>
       </g>
     </svg>

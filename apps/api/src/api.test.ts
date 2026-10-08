@@ -306,3 +306,32 @@ describe("autopilot", () => {
     await app.close();
   });
 });
+
+describe("character gallery", () => {
+  it("offers 2 women and 2 men; using one adds an editable copy and makes it the main host", async () => {
+    const presets = json(await ctx.app.inject({ method: "GET", url: "/api/characters/presets" }));
+    expect(presets).toHaveLength(4);
+    expect(presets.filter((p: { character: { politeParticle: string } }) => p.character.politeParticle === "ค่ะ")).toHaveLength(2);
+    expect(presets.every((p: { character: { disclosureLabel: string } }) => /AI|Virtual/i.test(p.character.disclosureLabel))).toBe(true);
+
+    const r = await ctx.app.inject({ method: "POST", url: "/api/characters/presets/preset_phum/use" });
+    expect(r.statusCode).toBe(201);
+    const c = json(r);
+    expect(c.name).toBe("ภูมิ");
+    expect(c.look.hairStyle).toBe("short");
+    expect(json(await ctx.app.inject({ method: "GET", url: "/api/characters/main" })).id).toBe(c.id);
+    expect(json(await ctx.app.inject({ method: "GET", url: `/api/characters/${c.id}` })).name).toBe("ภูมิ");
+
+    // Autopilot puts the main host on air.
+    const a = await ctx.app.inject({ method: "POST", url: "/api/autopilot", payload: { minutes: 0 } });
+    expect(a.statusCode).toBeLessThan(300);
+    const live = json(await ctx.app.inject({ method: "GET", url: "/api/live" })).find((s: { status: string }) => s.status === "LIVE");
+    expect(live.characterId).toBe(c.id);
+  });
+
+  it("switches the main host and rejects unknown ids", async () => {
+    expect((await ctx.app.inject({ method: "PUT", url: "/api/characters/main", payload: { id: "char_tem" } })).statusCode).toBe(200);
+    expect(json(await ctx.app.inject({ method: "GET", url: "/api/characters/main" })).id).toBe("char_tem");
+    expect((await ctx.app.inject({ method: "PUT", url: "/api/characters/main", payload: { id: "nope" } })).statusCode).toBe(404);
+  });
+});

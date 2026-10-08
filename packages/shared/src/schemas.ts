@@ -53,6 +53,7 @@ export const characterInput = z.object({
     eyes: z.string(),
     outfit: z.string(),
     accent: z.string(),
+    hairStyle: z.enum(["long", "bob", "ponytail", "short", "side"]).optional(),
     style: z.enum(["cartoon", "photo"]).optional(),
     photo: z
       .object({

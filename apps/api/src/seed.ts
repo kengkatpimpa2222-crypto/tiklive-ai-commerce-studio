@@ -1,5 +1,5 @@
 import { DEFAULT_DISCLOSURE_LABEL } from "@tlai/compliance";
-import type { FaqEntry, HostCharacter, LiveScript, Product, Promotion, Scene, StudioSettings } from "@tlai/shared";
+import type { FaqEntry, HostCharacter, HostPreset, LiveScript, Product, Promotion, Scene, StudioSettings } from "@tlai/shared";
 
 export const seedCharacters: HostCharacter[] = [
   {
@@ -9,7 +9,7 @@ export const seedCharacters: HostCharacter[] = [
     persona: "สดใส เป็นกันเอง อธิบายสินค้าละเอียดและตรงไปตรงมา",
     politeParticle: "ค่ะ",
     voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1, pitch: 1.05 },
-    look: { skin: "#f3cfb3", hair: "#2a1b17", eyes: "#3a2418", outfit: "#ff4f7b", accent: "#ffd166" },
+    look: { skin: "#f3cfb3", hair: "#2a1b17", eyes: "#3a2418", outfit: "#ff4f7b", accent: "#ffd166", hairStyle: "long" },
   },
   {
     id: "char_tem",
@@ -18,7 +18,63 @@ export const seedCharacters: HostCharacter[] = [
     persona: "สุขุม อธิบายสเปกเก่ง เหมาะกับสินค้าไอที",
     politeParticle: "ครับ",
     voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1, pitch: 0.9 },
-    look: { skin: "#e8b995", hair: "#151515", eyes: "#2b1d12", outfit: "#2f6fed", accent: "#7ee0c3" },
+    look: { skin: "#e8b995", hair: "#151515", eyes: "#2b1d12", outfit: "#2f6fed", accent: "#7ee0c3", hairStyle: "short" },
+  },
+];
+
+/** Ready-made hosts for the character gallery: two women and two men. */
+export const hostPresets: HostPreset[] = [
+  {
+    id: "preset_baitoey",
+    tagline: "ผู้หญิง ผมยาว สดใส เหมาะกับเครื่องสำอาง แฟชั่น",
+    character: {
+      name: "ใบเตย",
+      disclosureLabel: DEFAULT_DISCLOSURE_LABEL,
+      persona: "สดใส ยิ้มเก่ง เป็นกันเอง ชอบเล่าว่าใช้แล้วรู้สึกยังไง อธิบายวิธีใช้ละเอียด",
+      politeParticle: "ค่ะ",
+      energy: "high",
+      voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1.02, pitch: 1.1 },
+      look: { skin: "#f6d3bc", hair: "#3b2219", eyes: "#3a2418", outfit: "#ff5c8a", accent: "#ffd166", hairStyle: "long" },
+    },
+  },
+  {
+    id: "preset_praewa",
+    tagline: "ผู้หญิง ผมหางม้า มั่นใจ พูดชัด เหมาะกับของใช้ในบ้าน อาหารเสริม",
+    character: {
+      name: "แพรวา",
+      disclosureLabel: DEFAULT_DISCLOSURE_LABEL,
+      persona: "มั่นใจ พูดชัด ตรงประเด็น เปรียบเทียบความคุ้มค่าให้เห็นภาพ",
+      politeParticle: "ค่ะ",
+      energy: "high",
+      voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1.05, pitch: 1.02 },
+      look: { skin: "#e9b896", hair: "#1c1412", eyes: "#2b1d12", outfit: "#8e5cff", accent: "#7ee0c3", hairStyle: "ponytail" },
+    },
+  },
+  {
+    id: "preset_phum",
+    tagline: "ผู้ชาย ผมสั้น สุขุม เก่งสเปก เหมาะกับไอที อุปกรณ์",
+    character: {
+      name: "ภูมิ",
+      disclosureLabel: DEFAULT_DISCLOSURE_LABEL,
+      persona: "สุขุม น่าเชื่อถือ อธิบายสเปกเป็นภาษาง่าย บอกข้อดีและข้อจำกัดตรงๆ",
+      politeParticle: "ครับ",
+      energy: "normal",
+      voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1, pitch: 0.88 },
+      look: { skin: "#e3b08c", hair: "#121212", eyes: "#2b1d12", outfit: "#2f6fed", accent: "#cfd8e3", hairStyle: "short" },
+    },
+  },
+  {
+    id: "preset_tonkla",
+    tagline: "ผู้ชาย ผมปัดข้าง ร่าเริง ตลก เหมาะกับอาหาร ขนม ของเล่น",
+    character: {
+      name: "ต้นกล้า",
+      disclosureLabel: DEFAULT_DISCLOSURE_LABEL,
+      persona: "ร่าเริง ขี้เล่น ชวนคุยสนุก เล่าเรื่องสั้นๆ ให้เห็นภาพตอนใช้สินค้า",
+      politeParticle: "ครับ",
+      energy: "high",
+      voice: { provider: "browser", voice: "", lang: "th-TH", rate: 1.06, pitch: 0.95 },
+      look: { skin: "#d9a07a", hair: "#3a2418", eyes: "#2b1d12", outfit: "#19a974", accent: "#ffd166", hairStyle: "side" },
+    },
   },
 ];
 

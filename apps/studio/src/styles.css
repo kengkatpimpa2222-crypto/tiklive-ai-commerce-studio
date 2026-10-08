@@ -210,3 +210,9 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .autopilot-card p { margin: 6px 0; font-size: 13px; line-height: 1.5; }
 .autopilot-card.on { border-color: var(--ok); background: #0f2a20; }
 .autopilot-card select, .autopilot-card .row button { flex: 1 1 100%; }
+.host-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 8px; }
+.gallery-card { display: flex; flex-direction: column; gap: 6px; background: #11141c; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.gallery-card small { color: var(--muted); min-height: 3.4em; }
+.gallery-preview { position: relative; aspect-ratio: 9 / 12; border-radius: 10px; overflow: hidden; background: linear-gradient(160deg, #2a2140, #1b2a3a); }
+.gallery-preview .avatar-svg { inset: auto; left: -25%; top: -44%; width: 150%; height: auto; aspect-ratio: 1080 / 1920; }
+.gallery-preview.photo-slot { display: grid; place-items: center; font-size: 42px; }

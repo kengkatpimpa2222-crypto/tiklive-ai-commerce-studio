@@ -1,7 +1,8 @@
-import type { HostCharacter, HostEnergy } from "@tlai/shared";
+import type { HairStyle, HostCharacter, HostEnergy } from "@tlai/shared";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useData } from "../lib/useData";
+import { HostGallery } from "./HostGallery";
 import { PhotoHostEditor } from "./PhotoHostEditor";
 
 export function CharactersPage() {
@@ -9,6 +10,8 @@ export function CharactersPage() {
   const [sel, setSel] = useState<HostCharacter | null>(null);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [err, setErr] = useState("");
+  const [main, reloadMain] = useData<{ id: string | null }>("/characters/main", { id: null });
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const load = () => setVoices(window.speechSynthesis?.getVoices() ?? []);
@@ -38,6 +41,30 @@ export function CharactersPage() {
       setErr(`⚠ ${(e as Error).message}`);
     }
   };
+  const usePreset = async (presetId: string) => {
+    setBusy(true);
+    try {
+      const c = await api<HostCharacter>(`/characters/presets/${presetId}/use`, { method: "POST" });
+      reload();
+      reloadMain();
+      setSel(c);
+      setErr(`เพิ่ม "${c.name}" แล้ว และตั้งเป็นพิธีกรหลัก`);
+      document.getElementById("editor")?.scrollIntoView({ behavior: "smooth" });
+    } catch (e) {
+      setErr(`⚠ ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const makeMain = async () => {
+    try {
+      await api("/characters/main", { method: "PUT", body: { id: sel.id } });
+      reloadMain();
+      setErr(`ตั้ง "${sel.name}" เป็นพิธีกรหลักแล้ว`);
+    } catch (e) {
+      setErr(`⚠ ${(e as Error).message}`);
+    }
+  };
   const test = () => {
     const u = new SpeechSynthesisUtterance(`สวัสดี${sel.politeParticle} ${sel.name}เป็นตัวละคร AI ที่จะช่วยแนะนำสินค้า${sel.politeParticle}`);
     const v = voices.find((x) => x.name === sel.voice.voice) ?? voices.find((x) => x.lang.startsWith("th"));
@@ -52,13 +79,24 @@ export function CharactersPage() {
   return (
     <div className="page">
       <h1>ตัวละคร AI</h1>
+      <HostGallery
+        busy={busy}
+        onUse={usePreset}
+        onPhoto={() => {
+          set({ look: { ...sel.look, style: "photo" } });
+          setTimeout(() => document.getElementById("look")?.scrollIntoView({ behavior: "smooth" }), 50);
+        }}
+      />
+      <h2 id="editor">ตัวละครของฉัน</h2>
       <div className="chips">
         {chars.map((c) => (
           <button key={c.id} className={c.id === sel.id ? "on" : ""} onClick={() => setSel(c)}>
+            {c.id === main.id ? "★ " : ""}
             {c.name}
           </button>
         ))}
       </div>
+      <p className="muted">★ = พิธีกรหลัก ตัวนี้จะขึ้นไลฟ์เมื่อกด "เริ่มไลฟ์อัตโนมัติ"</p>
       <div className="form card">
         <label>ชื่อ <input value={sel.name} onChange={(e) => set({ name: e.target.value })} /></label>
         <label>
@@ -116,6 +154,16 @@ export function CharactersPage() {
           <PhotoHostEditor character={sel} onChange={(look) => set({ look })} />
         ) : (
         <div className="row">
+          <label>
+            ทรงผม
+            <select value={sel.look.hairStyle ?? "long"} onChange={(e) => set({ look: { ...sel.look, hairStyle: e.target.value as HairStyle } })}>
+              <option value="long">ผมยาว</option>
+              <option value="bob">ผมบ็อบ</option>
+              <option value="ponytail">หางม้า</option>
+              <option value="short">ผมสั้น (ชาย)</option>
+              <option value="side">ผมปัดข้าง (ชาย)</option>
+            </select>
+          </label>
           {(["skin", "hair", "eyes", "outfit", "accent"] as const).map((k) => (
             <label key={k}>
               {{ skin: "ผิว", hair: "ผม", eyes: "ตา", outfit: "ชุด", accent: "เครื่องประดับ" }[k]}
@@ -126,6 +174,7 @@ export function CharactersPage() {
         )}
         <div className="row">
           <button className="primary" onClick={save}>บันทึก</button>
+          {sel.id !== main.id && <button onClick={makeMain}>ตั้งเป็นพิธีกรหลัก</button>}
           {err && <span className="msg">{err}</span>}
         </div>
       </div>
