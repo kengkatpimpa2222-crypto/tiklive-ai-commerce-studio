@@ -39,13 +39,23 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TikLive-AI-Commerce-Studio-Setup-${version}.exe"
     },
     "npmRebuild": false,
-    "asar": true
-  }
+    "asar": true,
+    "portable": {
+      "artifactName": "TikLive-AI-Commerce-Studio-Portable-${version}.exe"
+    },
+    "publish": null
+  },
+  "author": "TikLive AI Commerce Studio"
 }

@@ -60,6 +60,8 @@ function openStage(): void {
   stage = new BrowserWindow({ width: 540, height: 960, title: "Stage (AI Virtual Host)", backgroundColor: "#000000", webPreferences: { ...webPreferences, backgroundThrottling: false } });
   harden(stage);
   stage.setMenuBarVisibility(false);
+  // Keep a fixed, recognisable title so it is easy to pick in OBS / TikTok LIVE Studio window capture.
+  stage.on("page-title-updated", (e) => e.preventDefault());
   void stage.loadURL(`${ORIGIN}/#/stage`);
   stage.on("closed", () => (stage = null));
 }

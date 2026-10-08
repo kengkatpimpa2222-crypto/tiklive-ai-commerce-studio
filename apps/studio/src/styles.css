@@ -120,3 +120,4 @@ td button { margin-right: 4px; font-size: 12px; padding: 3px 8px; }
 .pc-cta { font-size: 2.6cqw; color: #555; }
 .caption { position: absolute; left: 5cqw; right: 5cqw; bottom: 4cqh; text-align: center; font-size: 3.6cqw; line-height: 1.4; color: #fff; background: rgba(0, 0, 0, 0.55); padding: 1.4cqw 2.4cqw; border-radius: 2cqw; }
 .click-hint { position: absolute; inset: auto 0 45% 0; text-align: center; color: #fff; background: #000a; padding: 2cqw; font-size: 3cqw; }
+.voice-warn { background: #3a2a0f; color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 8px 0; line-height: 1.5; }

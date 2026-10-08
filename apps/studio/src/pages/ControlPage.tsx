@@ -42,6 +42,21 @@ export function ControlPage() {
   const [qText, setQText] = useState("");
   const [qAuthor, setQAuthor] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [thaiVoice, setThaiVoice] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const check = () => {
+      const voices = window.speechSynthesis?.getVoices() ?? [];
+      if (voices.length === 0) return;
+      setThaiVoice(voices.find((v) => v.lang.replace("_", "-").startsWith("th"))?.name ?? null);
+    };
+    check();
+    window.speechSynthesis?.addEventListener("voiceschanged", check);
+    const t = window.setTimeout(() => setThaiVoice((v) => (v === undefined ? null : v)), 3000);
+    return () => {
+      window.speechSynthesis?.removeEventListener("voiceschanged", check);
+      clearTimeout(t);
+    };
+  }, []);
   const [form, setForm] = useState({ title: "", characterId: "", scriptId: "", productIds: [] as string[] });
 
   useEffect(() => {
@@ -169,8 +184,14 @@ export function ControlPage() {
             ))}
           </ul>
         )}
+        {thaiVoice === null && (
+          <div className="voice-warn">
+            ไม่พบเสียงภาษาไทยในเครื่อง ตัวละครจะขยับปากแต่ไม่มีเสียง ติดตั้งที่ Windows Settings → Time &amp; language → Speech → Add voices → ภาษาไทย แล้วเปิดแอปใหม่
+          </div>
+        )}
+        {thaiVoice && <div className="note">เสียงที่ใช้: {thaiVoice}</div>}
         <div className="note">
-          ภาพและเสียงออกอากาศผ่าน OBS (Browser Source: <code>{location.origin}/#/stage</code>) ไปยัง TikTok LIVE Studio หรือ stream key ทางการ
+          นำภาพเข้า TikTok LIVE Studio ด้วย Window Capture ของหน้าต่าง "Stage (AI Virtual Host)" และเปิดเสียงของแอปนี้ (หรือผ่าน OBS)
           ส่วนการปักสินค้าและดูยอดผู้ชมทำใน TikTok LIVE Studio / Seller Center
         </div>
         {msg && <div className="msg">{msg}</div>}

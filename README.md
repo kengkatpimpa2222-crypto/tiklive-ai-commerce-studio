@@ -81,6 +81,8 @@ pnpm package:win    # สร้างตัวติดตั้ง Windows (.ex
 
 ## ออกอากาศ
 
+คู่มือทีละขั้นภาษาไทย: [docs/GO-LIVE-TH.md](docs/GO-LIVE-TH.md)
+
 1. เปิดแอป → หน้าต่าง Stage จะเปิดอัตโนมัติ (หรือ OBS → Browser Source → `http://127.0.0.1:4417/#/stage`, 1080×1920, เปิด "Control audio via OBS")
 2. ใน OBS ส่งออกไปยัง TikTok LIVE Studio (Virtual Camera) หรือ stream key ที่ TikTok ให้บัญชีคุณ
 3. ห้องควบคุม: สร้างไลฟ์ → ตรวจสอบ → เริ่ม LIVE
