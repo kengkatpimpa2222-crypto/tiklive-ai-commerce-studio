@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import type { HostCharacter, LiveScript, LiveSession, Product, Promotion, Scene, ViewerQuestion } from "@tlai/shared";
-import { seedCharacters, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
+import type { FaqEntry, HostCharacter, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
+import { defaultSettings, seedCharacters, seedFaqs, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
 
 export interface Db {
   products: Product[];
@@ -11,9 +11,12 @@ export interface Db {
   scripts: LiveScript[];
   sessions: LiveSession[];
   questions: ViewerQuestion[];
+  faqs: FaqEntry[];
+  settings: StudioSettings;
 }
 
-export type Collection = keyof Db;
+export type Collection = Exclude<keyof Db, "settings">;
+type Lists = Pick<Db, Collection>;
 
 const seed = (): Db => ({
   products: structuredClone(seedProducts),
@@ -23,6 +26,8 @@ const seed = (): Db => ({
   scripts: structuredClone(seedScripts),
   sessions: [],
   questions: [],
+  faqs: structuredClone(seedFaqs),
+  settings: structuredClone(defaultSettings),
 });
 
 /** Local JSON store. A desktop app for one seller does not need a database server. */
@@ -32,28 +37,31 @@ export class Store {
 
   constructor(private readonly file: string | null) {
     if (file && existsSync(file)) {
-      this.db = { ...seed(), ...(JSON.parse(readFileSync(file, "utf8")) as Partial<Db>) };
+      const saved = JSON.parse(readFileSync(file, "utf8")) as Partial<Db>;
+      const base = seed();
+      // Older data files gain new collections and settings fields with defaults.
+      this.db = { ...base, ...saved, settings: { stage: { ...base.settings.stage, ...saved.settings?.stage } } };
     } else {
       this.db = seed();
       this.flush();
     }
   }
 
-  list<K extends Collection>(k: K): Db[K] {
+  list<K extends Collection>(k: K): Lists[K] {
     return this.db[k];
   }
 
-  get<K extends Collection>(k: K, id: string): Db[K][number] | undefined {
-    return (this.db[k] as { id: string }[]).find((x) => x.id === id) as Db[K][number] | undefined;
+  get<K extends Collection>(k: K, id: string): Lists[K][number] | undefined {
+    return (this.db[k] as { id: string }[]).find((x) => x.id === id) as Lists[K][number] | undefined;
   }
 
-  insert<K extends Collection>(k: K, item: Db[K][number]): Db[K][number] {
-    (this.db[k] as Db[K][number][]).push(item);
+  insert<K extends Collection>(k: K, item: Lists[K][number]): Lists[K][number] {
+    (this.db[k] as Lists[K][number][]).push(item);
     this.save();
     return item;
   }
 
-  update<K extends Collection>(k: K, id: string, patch: Partial<Db[K][number]>): Db[K][number] | undefined {
+  update<K extends Collection>(k: K, id: string, patch: Partial<Lists[K][number]>): Lists[K][number] | undefined {
     const item = this.get(k, id);
     if (!item) return undefined;
     Object.assign(item as object, patch);
@@ -68,6 +76,12 @@ export class Store {
     arr.splice(i, 1);
     this.save();
     return true;
+  }
+
+  updateStage(patch: Partial<StudioSettings["stage"]>): StudioSettings {
+    Object.assign(this.db.settings.stage, patch);
+    this.save();
+    return this.db.settings;
   }
 
   /** Debounced write so a busy live session does not hammer the disk. */

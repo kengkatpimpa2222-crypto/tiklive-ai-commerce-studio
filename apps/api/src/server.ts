@@ -6,6 +6,8 @@ import { summaryCsv, summaryMarkdown } from "./export.js";
 import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
   characterInput,
+  faqInput,
+  stageSettingsInput,
   liveSessionInput,
   manualStatsInput,
   newId,
@@ -23,8 +25,8 @@ import {
 import { ManualTikTokProvider, OfficialTikTokProvider, type TikTokProvider } from "@tlai/tiktok";
 import { BrowserTtsPlan, OpenAICompatibleTts, type TtsProvider } from "@tlai/tts";
 import Fastify, { type FastifyInstance } from "fastify";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { WebSocket } from "ws";
 import { z, type ZodTypeAny } from "zod";
 import { LiveDirector } from "./director.js";
@@ -51,7 +53,7 @@ export function providersFromEnv(env: NodeJS.ProcessEnv = process.env) {
 }
 
 export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyInstance; store: Store; director: LiveDirector }> {
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024 });
   await app.register(cors, { origin: [/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/] });
   await app.register(websocket);
 
@@ -74,7 +76,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     freeTalkAfterMs: opts.freeTalkAfterMs,
     rotateEveryTurns: opts.rotateEveryTurns,
     send: (cmd) => {
-      if (cmd.type !== "speak" && cmd.type !== "stop_speaking" && cmd.type !== "gesture" && cmd.type !== "emotion") lastByType.set(cmd.type, cmd);
+      if (cmd.type !== "speak" && cmd.type !== "stop_speaking" && cmd.type !== "gesture" && cmd.type !== "emotion" && cmd.type !== "question") lastByType.set(cmd.type, cmd);
       broadcast(stages, cmd);
       broadcast(controls, { type: "stage", cmd });
     },
@@ -100,6 +102,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
           // Bring a freshly opened stage (e.g. OBS reload) up to date.
           for (const cmd of lastByType.values()) socket.send(JSON.stringify(cmd));
           if (!lastByType.has("character")) socket.send(JSON.stringify({ type: "character", character: store.list("characters")[0] }));
+          if (!lastByType.has("settings")) socket.send(JSON.stringify({ type: "settings", settings: store.db.settings }));
         } else socket.send(JSON.stringify({ type: "state", state: director.state() }));
       } else if (msg.type === "speech_done" && role === "stage") director.onSpeechDone(msg.segmentId);
     });
@@ -131,6 +134,43 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   crud("promotions", "promotions", promotionInput, "promo");
   crud("scenes", "scenes", sceneInput, "scene");
   crud("characters", "characters", characterInput, "char");
+  crud("faqs", "faqs", faqInput, "faq");
+
+  // ---- studio settings (stage layout, shop name, background) ----
+  app.get("/api/settings", async () => store.db.settings);
+  app.patch("/api/settings/stage", async (req) => {
+    const settings = store.updateStage(parse(stageSettingsInput.partial(), req.body));
+    const cmd: StageCommand = { type: "settings", settings };
+    lastByType.set("settings", cmd);
+    broadcast(stages, cmd);
+    return settings;
+  });
+
+  // ---- image uploads (product photos, stage backgrounds) ----
+  const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+  const memoryUploads = new Map<string, Buffer>();
+  const uploadsDir = opts.dataFile ? join(dirname(opts.dataFile), "uploads") : null;
+  app.post("/api/uploads", async (req, reply) => {
+    const { filename, dataBase64 } = parse(z.object({ filename: z.string().min(1).max(200), dataBase64: z.string().min(1) }), req.body);
+    const ext = filename.split(".").pop()!.toLowerCase();
+    if (!IMAGE_TYPES[ext]) return reply.code(400).send({ error: "รองรับเฉพาะไฟล์รูป png, jpg, webp, gif" });
+    const buf = Buffer.from(dataBase64.replace(/^data:[^,]+,/, ""), "base64");
+    if (buf.length > 5 * 1024 * 1024) return reply.code(413).send({ error: "ไฟล์ใหญ่เกิน 5 MB" });
+    const name = `${newId("img")}.${ext}`;
+    if (uploadsDir) {
+      mkdirSync(uploadsDir, { recursive: true });
+      writeFileSync(join(uploadsDir, name), buf);
+    } else memoryUploads.set(name, buf);
+    return reply.code(201).send({ url: `/uploads/${name}` });
+  });
+  app.get<{ Params: { name: string } }>("/uploads/:name", async (req, reply) => {
+    const name = req.params.name;
+    const ext = name.split(".").pop()!.toLowerCase();
+    if (!/^[\w.-]+$/.test(name) || !IMAGE_TYPES[ext]) return reply.code(404).send();
+    const buf = uploadsDir ? (existsSync(join(uploadsDir, name)) ? readFileSync(join(uploadsDir, name)) : undefined) : memoryUploads.get(name);
+    if (!buf) return reply.code(404).send();
+    return reply.type(IMAGE_TYPES[ext]!).header("cache-control", "public, max-age=31536000, immutable").send(buf);
+  });
   // Registered before the CRUD routes so "generate" is not read as a script id.
   app.post("/api/scripts/generate", async (req, reply) => {
     const input = parse(
@@ -186,6 +226,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       products: store.list("products").filter((p) => s.productIds.includes(p.id)),
       promotions: store.list("promotions").filter((p) => p.active),
       script: s.scriptId ? store.get("scripts", s.scriptId) : undefined,
+      faqs: store.list("faqs"),
     });
   app.post<{ Params: { id: string } }>("/api/live/:id/check", async (req, reply) => {
     const s = store.get("sessions", req.params.id);

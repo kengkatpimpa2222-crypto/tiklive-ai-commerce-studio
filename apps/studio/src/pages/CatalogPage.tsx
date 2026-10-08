@@ -1,6 +1,7 @@
 import type { Product, Promotion } from "@tlai/shared";
 import { useState } from "react";
 import { api } from "../lib/api";
+import { ImageUpload } from "../lib/ImageUpload";
 import { useData } from "../lib/useData";
 
 const emptyProduct = { sku: "", name: "", description: "", price: "", compareAtPrice: "", stock: "", category: "", highlights: "", specs: "", imageUrl: "" };
@@ -10,7 +11,7 @@ export function CatalogPage() {
   const [promos, reloadPromos] = useData<Promotion[]>("/promotions", []);
   const [f, setF] = useState(emptyProduct);
   const [editing, setEditing] = useState<string | null>(null);
-  const [promo, setPromo] = useState({ title: "", detail: "", productIds: [] as string[] });
+  const [promo, setPromo] = useState({ title: "", detail: "", productIds: [] as string[], endsAt: "" });
   const [err, setErr] = useState("");
 
   const edit = (p: Product) => {
@@ -47,11 +48,12 @@ export function CatalogPage() {
         <h1>สินค้า</h1>
         <table>
           <thead>
-            <tr><th>SKU</th><th>ชื่อ</th><th>ราคา</th><th>สต็อก</th><th /></tr>
+            <tr><th /><th>SKU</th><th>ชื่อ</th><th>ราคา</th><th>สต็อก</th><th /></tr>
           </thead>
           <tbody>
             {products.map((p) => (
               <tr key={p.id}>
+                <td>{p.imageUrl ? <img className="mini" src={p.imageUrl} alt="" /> : <span className="mini ph-mini">{p.name.slice(0, 1)}</span>}</td>
                 <td>{p.sku}</td>
                 <td>{p.name}</td>
                 <td>{p.price}{p.compareAtPrice ? <s> {p.compareAtPrice}</s> : null}</td>
@@ -72,6 +74,8 @@ export function CatalogPage() {
               <label>
                 <input type="checkbox" checked={p.active} onChange={(e) => api(`/promotions/${p.id}`, { method: "PATCH", body: { active: e.target.checked } }).then(reloadPromos)} />
                 <b>{p.title}</b> {p.detail}
+                {p.endsAt && <small className="muted"> · หมดเขต {new Date(p.endsAt).toLocaleString("th-TH")}</small>}
+                {p.productIds.length > 0 && <small className="muted"> · {p.productIds.map((id) => products.find((x) => x.id === id)?.name ?? id).join(", ")}</small>}
               </label>
               <button onClick={() => api(`/promotions/${p.id}`, { method: "DELETE" }).then(reloadPromos)}>ลบ</button>
             </li>
@@ -80,7 +84,28 @@ export function CatalogPage() {
         <div className="form">
           <input placeholder="ชื่อโปร" value={promo.title} onChange={(e) => setPromo({ ...promo, title: e.target.value })} />
           <input placeholder="รายละเอียดที่ให้ AI อ่าน (ตรงตามเงื่อนไขจริง)" value={promo.detail} onChange={(e) => setPromo({ ...promo, detail: e.target.value })} />
-          <button disabled={!promo.title || !promo.detail} onClick={() => api("/promotions", { body: promo }).then(() => { setPromo({ title: "", detail: "", productIds: [] }); reloadPromos(); })}>
+          <div className="row">
+            <label>
+              ใช้กับสินค้า
+              <select value={promo.productIds[0] ?? ""} onChange={(e) => setPromo({ ...promo, productIds: e.target.value ? [e.target.value] : [] })}>
+                <option value="">ทุกสินค้า (ทั้งร้าน)</option>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label>
+              หมดเขต (ถ้ามี จะแสดงนับถอยหลังบนจอ)
+              <input type="datetime-local" value={promo.endsAt} onChange={(e) => setPromo({ ...promo, endsAt: e.target.value })} />
+            </label>
+          </div>
+          <button
+            disabled={!promo.title || !promo.detail}
+            onClick={() =>
+              api("/promotions", { body: { ...promo, endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString() : undefined } }).then(() => {
+                setPromo({ title: "", detail: "", productIds: [], endsAt: "" });
+                reloadPromos();
+              })
+            }
+          >
             เพิ่มโปรโมชั่น
           </button>
         </div>
@@ -97,7 +122,10 @@ export function CatalogPage() {
           <input placeholder="สต็อก" type="number" value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} />
         </div>
         <input placeholder="หมวดหมู่" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} />
-        <input placeholder="URL รูปสินค้า" value={f.imageUrl} onChange={(e) => setF({ ...f, imageUrl: e.target.value })} />
+        <label>
+          รูปสินค้า (แสดงบนการ์ดสินค้าในไลฟ์)
+          <ImageUpload value={f.imageUrl} onChange={(url) => setF({ ...f, imageUrl: url })} />
+        </label>
         <textarea placeholder={"จุดเด่นที่ตรวจสอบแล้ว (บรรทัดละข้อ)"} value={f.highlights} onChange={(e) => setF({ ...f, highlights: e.target.value })} />
         <textarea placeholder={"ข้อมูลจำเพาะ เช่น\nขนาด: 30 ml\nวัสดุ: สแตนเลส"} value={f.specs} onChange={(e) => setF({ ...f, specs: e.target.value })} />
         <p className="note">AI จะพูดและตอบคำถามจากข้อมูลในหน้านี้เท่านั้น ถ้าไม่มีข้อมูลจะบอกผู้ชมว่าให้ทีมงานตอบ</p>

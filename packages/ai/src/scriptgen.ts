@@ -57,7 +57,7 @@ export function generateScript(input: ScriptPlanInput): ScriptPlan {
 
   sell.forEach((prod, i) => {
     scene("product");
-    if (i > 0) steps.push({ kind: "say", text: i === sell.length - 1 ? `มาถึงสินค้าตัวสุดท้ายของรอบนี้แล้ว${p}` : `ต่อไปเป็นสินค้าตัวที่ ${i + 1}${p}`, emotion: "excited" });
+    if (i > 0) steps.push({ kind: "say", text: i === sell.length - 1 ? `มาถึงสินค้าตัวสุดท้ายของรอบนี้แล้ว${p}` : `ต่อไปเป็นสินค้าตัวที่ ${i + 1} ${p}`, emotion: "excited" });
     steps.push({ kind: "show_product", productId: prod.id });
     steps.push({ kind: "pitch_product", productId: prod.id });
     for (const promo of active.filter((x) => x.productIds.includes(prod.id))) steps.push({ kind: "read_promo", promotionId: promo.id });

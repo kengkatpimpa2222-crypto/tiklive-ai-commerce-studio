@@ -48,6 +48,30 @@ export interface Promotion {
   active: boolean;
 }
 
+/** Shop-level answers (shipping, payment, returns) the host may give for any product. */
+export interface FaqEntry {
+  id: string;
+  topic: string;
+  /** Words that point a viewer question at this entry, e.g. ["ส่ง", "กี่วัน"]. */
+  keywords: string[];
+  answer: string;
+}
+
+export interface StageSettings {
+  shopName: string;
+  /** Uploaded or remote image shown behind the host (cover). */
+  backgroundImage?: string;
+  backgroundDim: number; // 0..0.8 darkening over the background image
+  avatarScale: number; // 0.6..1.4
+  avatarX: number; // -0.3..0.3 of stage width
+  avatarY: number; // -0.2..0.2 of stage height
+  showCaptions: boolean;
+}
+
+export interface StudioSettings {
+  stage: StageSettings;
+}
+
 export interface Scene {
   id: string;
   name: string;
@@ -183,6 +207,7 @@ export type StageCommand =
   | { type: "scene"; scene: Scene }
   | { type: "product"; product: Product | null; promotions: Promotion[] }
   | { type: "character"; character: HostCharacter }
+  | { type: "settings"; settings: StudioSettings }
   | { type: "question"; question: ViewerQuestion | null }
   | { type: "emotion"; emotion: Emotion }
   | { type: "gesture"; gesture: Gesture };

@@ -15,6 +15,9 @@ interface DirectorState {
   qaMode: "auto" | "review";
   stageConnected: boolean;
   lastBlocked: string | null;
+  startedAt: string | null;
+  nextDisclosureAt: number | null;
+  pendingQuestions: number;
 }
 interface PreflightItem {
   code: string;
@@ -101,6 +104,39 @@ export function ControlPage() {
 
   const pending = questions.filter((q) => q.status === "pending");
 
+  // Clock for the live timer and disclosure countdown.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Operator shortcuts that work anywhere in the control window.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F8") {
+        e.preventDefault();
+        void director(state?.status === "paused" ? "resume" : "pause");
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        void director("skip");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const preflightOk = preflight ? preflight.every((i) => i.ok || i.severity === "warn") : current?.status === "READY" || current?.status === "LIVE";
+  const ready: [boolean, string][] = [
+    [thaiVoice !== null, thaiVoice ? `เสียงไทย: ${thaiVoice}` : thaiVoice === undefined ? "กำลังตรวจเสียงไทย…" : "ยังไม่มีเสียงภาษาไทยในเครื่อง"],
+    [!!state?.stageConnected, state?.stageConnected ? "หน้าต่าง Stage เปิดอยู่" : "ยังไม่ได้เปิดหน้าต่าง Stage"],
+    [!!current, current ? `เลือกไลฟ์: ${current.title}` : "ยังไม่ได้สร้างหรือเลือกไลฟ์"],
+    [!!current?.scriptId, current?.scriptId ? "มีสคริปต์" : "ยังไม่ได้เลือกสคริปต์ (ควบคุมเองได้)"],
+    [!!preflightOk, preflightOk ? "ตรวจเนื้อหาผ่าน" : "ยังไม่ได้กดตรวจสอบ หรือยังไม่ผ่าน"],
+  ];
+  const elapsed = state?.startedAt ? now - Date.parse(state.startedAt) : 0;
+  const disclosureIn = state?.nextDisclosureAt ? Math.max(0, state.nextDisclosureAt - now) : null;
+
   return (
     <div className="control">
       <section className="panel session-panel">
@@ -175,6 +211,27 @@ export function ControlPage() {
             {current.status === "ENDED" && <a href={`#/summary/${current.id}`}>ดูสรุปผล</a>}
           </div>
         )}
+        {!live && (
+          <>
+            <h3>ความพร้อมก่อนไลฟ์</h3>
+            <ul className="readiness">
+              {ready.map(([ok, text]) => (
+                <li key={text} className={ok ? "ok" : "todo"}>
+                  {ok ? "✓" : "○"} {text}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {live && state?.startedAt && (
+          <div className="live-clock">
+            <div>
+              <span className="rec" /> ออกอากาศ <b>{fmtClock(elapsed)}</b>
+            </div>
+            {disclosureIn !== null && <div className="muted">แจ้งว่าเป็น AI ครั้งถัดไปใน {fmtClock(disclosureIn)}</div>}
+            <div className="muted">คำถามรอตอบ {state.pendingQuestions}</div>
+          </div>
+        )}
         {preflight && (
           <ul className="preflight">
             {preflight.map((i) => (
@@ -218,6 +275,7 @@ export function ControlPage() {
           <button onClick={() => director("pause")}>⏸ หยุด</button>
           <button onClick={() => director("resume")}>▶ ต่อ</button>
           <button onClick={() => director("skip")}>⏭ ข้ามประโยค</button>
+          <span className="muted kbd-hint">F8 หยุด/ต่อ · F9 ข้าม</span>
         </div>
         <div className="say">
           <textarea placeholder="พิมพ์ให้ AI พูดทันที (ตรวจกฎก่อนพูด)" value={sayText} onChange={(e) => setSayText(e.target.value)} />
@@ -321,4 +379,10 @@ export function ControlPage() {
       </section>
     </div>
   );
+}
+
+function fmtClock(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }

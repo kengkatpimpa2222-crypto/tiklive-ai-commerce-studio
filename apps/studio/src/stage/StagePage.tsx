@@ -1,5 +1,5 @@
 import { AvatarController, type AvatarFrame } from "@tlai/avatar";
-import { formatBaht, type HostCharacter, type Product, type Promotion, type Scene, type StageCommand, type ViewerQuestion } from "@tlai/shared";
+import { formatBaht, type HostCharacter, type Product, type Promotion, type Scene, type StageCommand, type StudioSettings, type ViewerQuestion } from "@tlai/shared";
 import { useEffect, useRef, useState } from "react";
 import { connect } from "../lib/api";
 import { Avatar } from "./Avatar";
@@ -26,10 +26,22 @@ export function StagePage() {
   const [question, setQuestion] = useState<ViewerQuestion | null>(null);
   const [frame, setFrame] = useState<AvatarFrame | null>(null);
   const [needsClick, setNeedsClick] = useState(false);
+  const [settings, setSettings] = useState<StudioSettings["stage"] | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
   const ctl = useRef(new AvatarController(Math.floor(Math.random() * 1e6)));
   const speech = useRef(new SpeechEngine(preview));
   const charRef = useRef(character);
   charRef.current = character;
+
+  // The stage is captured as a window: never show scrollbars.
+  useEffect(() => {
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+  }, []);
 
   // Animation loop
   useEffect(() => {
@@ -56,6 +68,9 @@ export function StagePage() {
           break;
         case "scene":
           setScene(cmd.scene);
+          break;
+        case "settings":
+          setSettings(cmd.settings.stage);
           break;
         case "product":
           setProduct(cmd.product);
@@ -102,11 +117,25 @@ export function StagePage() {
     return () => link.close();
   }, []);
 
-  const promo = promos[0];
+  // Prefer a product-specific promotion over shop-wide ones while a product is on screen.
+  const promo = promos.find((p) => product && p.productIds.includes(product.id)) ?? promos[0];
+  const endsIn = promo?.endsAt ? Date.parse(promo.endsAt) - now : NaN;
+  const showCaptions = (scene?.showCaptions ?? true) && (settings?.showCaptions ?? true);
+  const avatarStyle = settings
+    ? { transform: `translate(${settings.avatarX * 100}%, ${settings.avatarY * 100}%) scale(${settings.avatarScale})` }
+    : undefined;
   return (
     <div className="stage" style={{ background: scene?.background ?? "linear-gradient(160deg,#ffe3ec,#fff1c9)" }} onClick={() => setNeedsClick(false)}>
       <div className="stage-canvas">
-        {frame && <Avatar frame={frame} character={character} />}
+        {settings?.backgroundImage && (
+          <div className="stage-bg" style={{ backgroundImage: `url(${settings.backgroundImage})` }}>
+            <div style={{ background: `rgba(0,0,0,${settings.backgroundDim})` }} />
+          </div>
+        )}
+        <div className="avatar-wrap" style={avatarStyle}>
+          {frame && <Avatar frame={frame} character={character} />}
+        </div>
+        {settings?.shopName && <div className="shop-name">{settings.shopName}</div>}
 
         {/* Disclosure is always on screen and cannot be hidden from the UI. */}
         <div className="disclosure">
@@ -117,6 +146,7 @@ export function StagePage() {
         {(scene?.showPromoBanner ?? true) && promo && (
           <div className="promo-banner">
             <b>{promo.title}</b> {promo.detail}
+            {endsIn > 0 && endsIn < 48 * 3600_000 && <span className="countdown">หมดเขตใน {fmtLeft(endsIn)}</span>}
           </div>
         )}
 
@@ -142,9 +172,17 @@ export function StagePage() {
           </div>
         )}
 
-        {(scene?.showCaptions ?? true) && caption && <div className="caption">{caption}</div>}
+        {showCaptions && caption && <div className="caption">{caption}</div>}
         {needsClick && <div className="click-hint">คลิกหนึ่งครั้งเพื่อเปิดเสียง</div>}
       </div>
     </div>
   );
+}
+
+function fmtLeft(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${h > 0 ? `${h}:` : ""}${pad(m)}:${pad(s % 60)}`;
 }

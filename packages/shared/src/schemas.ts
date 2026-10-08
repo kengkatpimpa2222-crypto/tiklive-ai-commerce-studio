@@ -8,7 +8,8 @@ export const productInput = z.object({
   price: z.number().nonnegative(),
   compareAtPrice: z.number().nonnegative().optional(),
   stock: z.number().int().nonnegative(),
-  imageUrl: z.string().url().optional(),
+  /** http(s) URL or an image uploaded to this app (/uploads/...). */
+  imageUrl: z.string().regex(/^(https?:\/\/|\/uploads\/)/).optional(),
   category: z.string().default("ทั่วไป"),
   highlights: z.array(z.string().min(1)).default([]),
   specs: z.record(z.string()).default({}),
@@ -87,4 +88,20 @@ export const manualStatsInput = z.object({
   orders: z.number().int().nonnegative().optional(),
   gmv: z.number().nonnegative().optional(),
   likes: z.number().int().nonnegative().optional(),
+});
+
+export const faqInput = z.object({
+  topic: z.string().min(1),
+  keywords: z.array(z.string().min(1)).min(1),
+  answer: z.string().min(1).max(400),
+});
+
+export const stageSettingsInput = z.object({
+  shopName: z.string().max(40),
+  backgroundImage: z.string().max(500).optional(),
+  backgroundDim: z.number().min(0).max(0.8),
+  avatarScale: z.number().min(0.6).max(1.4),
+  avatarX: z.number().min(-0.3).max(0.3),
+  avatarY: z.number().min(-0.2).max(0.2),
+  showCaptions: z.boolean(),
 });

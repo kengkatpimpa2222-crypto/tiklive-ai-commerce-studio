@@ -15,6 +15,8 @@ export interface PreflightInput {
   products: Product[];
   promotions: Promotion[];
   script?: LiveScript;
+  /** Shop FAQ answers the host may read out. */
+  faqs?: { id: string; topic: string; answer: string }[];
 }
 
 export function allowedPricesFor(products: Product[], promotions: Promotion[]): number[] {
@@ -53,6 +55,11 @@ export function runPreflight(input: PreflightInput): { ok: boolean; items: Prefl
   const allowed = allowedPricesFor(input.products, input.promotions);
   for (const promo of input.promotions) {
     pushClaimItems(items, `PROMO_${promo.id}`, `โปรโมชั่น "${promo.title}"`, checkClaims(promo.detail));
+  }
+
+  for (const f of input.faqs ?? []) {
+    pushClaimItems(items, `FAQ_${f.id}`, `คำตอบร้าน "${f.topic}"`, checkClaims(f.answer, { allowedPrices: allowed }));
+    if (deniesBeingAi(f.answer)) add(`FAQ_${f.id}_IDENTITY`, false, `คำตอบร้าน "${f.topic}": ห้ามอ้างว่าเป็นคนจริง`);
   }
 
   if (input.script) {

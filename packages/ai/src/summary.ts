@@ -32,6 +32,16 @@ export function summarizeLive(session: LiveSession, products: Product[], nowIso 
   }
   flushShown(stop);
 
+  // A disclosure is usually spoken as two or three sentences; count each announcement once.
+  let disclosures = 0;
+  let lastDisclosure = -Infinity;
+  for (const e of ev) {
+    if (e.type !== "disclosure") continue;
+    const at = Date.parse(e.at);
+    if (at - lastDisclosure > 60_000) disclosures++;
+    lastDisclosure = at;
+  }
+
   const questions = ev.filter((e) => e.type === "question").map((e) => e.text ?? "");
   const answered = ev.filter((e) => e.type === "answer").length;
   const blocked = ev.filter((e) => e.type === "blocked_text").length;
@@ -59,7 +69,7 @@ export function summarizeLive(session: LiveSession, products: Product[], nowIso 
   const ms = session.manualStats;
   const narrative = [
     `ไลฟ์ "${session.title}" ยาว ${durationMinutes} นาที`,
-    `โฮสต์ AI พูด ${ev.filter((e) => e.type === "spoke").length} ประโยค แจ้งว่าเป็น AI ${ev.filter((e) => e.type === "disclosure").length} ครั้ง`,
+    `โฮสต์ AI พูด ${ev.filter((e) => e.type === "spoke").length} ประโยค แจ้งว่าเป็น AI ${disclosures} ครั้ง`,
     `รับคำถาม ${questions.length} ข้อ ตอบแล้ว ${answered} ข้อ`,
     productAirtime[0] ? `สินค้าที่ออกจอนานที่สุดคือ ${productAirtime[0].name}` : "",
     ms.orders !== undefined ? `คำสั่งซื้อ ${ms.orders} รายการ${ms.gmv !== undefined ? ` ยอดขาย ${ms.gmv.toLocaleString()} บาท` : ""} (ข้อมูลจากผู้ขาย)` : "",
@@ -71,7 +81,7 @@ export function summarizeLive(session: LiveSession, products: Product[], nowIso 
     sessionId: session.id,
     durationMinutes,
     sentencesSpoken: ev.filter((e) => e.type === "spoke").length,
-    disclosures: ev.filter((e) => e.type === "disclosure").length,
+    disclosures,
     questionsReceived: questions.length,
     questionsAnswered: answered,
     blockedTexts: blocked,

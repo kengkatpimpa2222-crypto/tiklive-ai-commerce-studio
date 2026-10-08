@@ -36,6 +36,10 @@ export interface DirectorState {
   qaMode: QaMode;
   stageConnected: boolean;
   lastBlocked: string | null;
+  startedAt: string | null;
+  /** When the next scheduled AI disclosure is due (epoch ms), while running. */
+  nextDisclosureAt: number | null;
+  pendingQuestions: number;
 }
 
 export interface DirectorDeps {
@@ -93,6 +97,9 @@ export class LiveDirector {
     this.script = session.scriptId ? this.d.store.get("scripts", session.scriptId) : undefined;
     const c = this.character();
     this.d.send({ type: "character", character: c });
+    this.d.send({ type: "settings", settings: this.d.store.db.settings });
+    // Shop-wide promotions show on screen from the first second.
+    this.showProduct(null);
     const intro = this.d.store.list("scenes").find((s) => s.kind === "intro");
     if (intro) this.setScene(intro.id);
     this.enqueueDisclosure(openingDisclosure(c));
@@ -251,6 +258,9 @@ export class LiveDirector {
       qaMode: this.qaMode,
       stageConnected: this.stageConnected,
       lastBlocked: this.lastBlocked,
+      startedAt: this.session()?.startedAt ?? null,
+      nextDisclosureAt: this.sessionId ? this.lastDisclosureAt + REDISCLOSURE_INTERVAL_MS : null,
+      pendingQuestions: this.sessionId ? this.pendingQuestions().length : 0,
     };
   }
 
@@ -420,7 +430,14 @@ export class LiveDirector {
     const all = this.d.store.list("products");
     const products = s?.productIds.length ? all.filter((p) => s.productIds.includes(p.id)) : all;
     const promotions = this.d.store.list("promotions").filter((p) => p.active);
-    return { character: this.character(), products, promotions, currentProductId: this.currentProductId ?? undefined, allowedPrices: allowedPricesFor(all, promotions) };
+    return {
+      character: this.character(),
+      products,
+      promotions,
+      currentProductId: this.currentProductId ?? undefined,
+      allowedPrices: allowedPricesFor(all, promotions),
+      faqs: this.d.store.list("faqs"),
+    };
   }
 
   private log(e: Omit<LiveEvent, "at">): void {

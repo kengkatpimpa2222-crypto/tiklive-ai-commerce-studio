@@ -1,5 +1,5 @@
 import { DEFAULT_DISCLOSURE_LABEL } from "@tlai/compliance";
-import type { HostCharacter, LiveScript, Product, Promotion, Scene } from "@tlai/shared";
+import type { FaqEntry, HostCharacter, LiveScript, Product, Promotion, Scene, StudioSettings } from "@tlai/shared";
 
 export const seedCharacters: HostCharacter[] = [
   {
@@ -81,3 +81,14 @@ export const seedScripts: LiveScript[] = [
     ],
   },
 ];
+
+export const seedFaqs: FaqEntry[] = [
+  { id: "faq_ship", topic: "การจัดส่ง", keywords: ["ส่ง", "จัดส่ง", "กี่วัน", "ขนส่ง", "ได้ของ", "ถึงเมื่อไหร่"], answer: "ร้านจัดส่งภายใน 1-2 วันทำการหลังยืนยันคำสั่งซื้อ ระยะเวลาขนส่งขึ้นกับพื้นที่ ติดตามพัสดุได้ในคำสั่งซื้อของ TikTok Shop ค่ะ" },
+  { id: "faq_pay", topic: "การชำระเงิน", keywords: ["ปลายทาง", "cod", "โอน", "จ่าย", "ชำระ", "บัตร"], answer: "ชำระเงินได้ทุกช่องทางที่ TikTok Shop มีให้เลือกตอนสั่งซื้อ รวมถึงเก็บเงินปลายทางถ้าพื้นที่รองรับค่ะ" },
+  { id: "faq_return", topic: "คืน/เปลี่ยนสินค้า", keywords: ["คืน", "เปลี่ยน", "เคลม", "เสียหาย", "ชำรุด"], answer: "ถ้าสินค้ามีปัญหา แจ้งคืนหรือเปลี่ยนผ่านหน้าคำสั่งซื้อใน TikTok Shop ตามนโยบายของแพลตฟอร์มได้เลยค่ะ ทีมงานจะช่วยดูแลค่ะ" },
+  { id: "faq_order", topic: "วิธีสั่งซื้อ", keywords: ["สั่งยังไง", "สั่งซื้อยังไง", "ซื้อยังไง", "ตะกร้า", "กดตรงไหน"], answer: "กดที่ไอคอนตะกร้าด้านล่างจอ เลือกสินค้า แล้วกดซื้อได้เลยค่ะ" },
+];
+
+export const defaultSettings: StudioSettings = {
+  stage: { shopName: "", backgroundDim: 0.25, avatarScale: 1, avatarX: 0, avatarY: 0, showCaptions: true },
+};

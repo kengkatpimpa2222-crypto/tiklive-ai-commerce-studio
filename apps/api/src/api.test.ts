@@ -134,3 +134,41 @@ describe("script generator and exports", () => {
     expect(csv.body).toContain(",ended,");
   });
 });
+
+describe("shop FAQ, settings and uploads", () => {
+  it("answers shipping questions from the shop FAQ", async () => {
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "faq", characterId: "char_tem", productIds: ["prod_serum"] } }));
+    await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` });
+    const q = json(await ctx.app.inject({ method: "POST", url: "/api/questions", payload: { text: "ส่งกี่วันครับ" } }));
+    const d = json(await ctx.app.inject({ method: "POST", url: `/api/questions/${q.id}/draft` }));
+    expect(d.text).toContain("1-2 วันทำการ");
+    expect(d.text).toContain("ครับ");
+    expect(d.text).not.toContain("ค่ะ");
+  });
+
+  it("blocks a live when a shop FAQ answer makes a forbidden claim", async () => {
+    await ctx.app.inject({ method: "PATCH", url: "/api/faqs/faq_return", payload: { answer: "การันตีคืนเงิน 100% ได้ผลแน่นอนค่ะ" } });
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "faq2", characterId: "char_mint", productIds: ["prod_serum"] } }));
+    expect((await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` })).statusCode).toBe(422);
+  });
+
+  it("validates and stores stage settings", async () => {
+    expect((await ctx.app.inject({ method: "PATCH", url: "/api/settings/stage", payload: { avatarScale: 5 } })).statusCode).toBe(400);
+    const s = json(await ctx.app.inject({ method: "PATCH", url: "/api/settings/stage", payload: { shopName: "ร้านมินท์", avatarScale: 1.2 } }));
+    expect(s.stage).toMatchObject({ shopName: "ร้านมินท์", avatarScale: 1.2, showCaptions: true });
+  });
+
+  it("uploads an image and serves it back; rejects non-images", async () => {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex").toString("base64");
+    const up = await ctx.app.inject({ method: "POST", url: "/api/uploads", payload: { filename: "a.png", dataBase64: png } });
+    expect(up.statusCode).toBe(201);
+    const { url } = json(up);
+    const got = await ctx.app.inject({ method: "GET", url });
+    expect(got.statusCode).toBe(200);
+    expect(got.headers["content-type"]).toBe("image/png");
+    const prod = await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_serum", payload: { imageUrl: url } });
+    expect(prod.statusCode).toBe(200);
+    expect((await ctx.app.inject({ method: "POST", url: "/api/uploads", payload: { filename: "x.exe", dataBase64: png } })).statusCode).toBe(400);
+    expect((await ctx.app.inject({ method: "GET", url: "/uploads/..%2Fstudio.json" })).statusCode).toBe(404);
+  });
+});

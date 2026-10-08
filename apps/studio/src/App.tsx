@@ -3,12 +3,14 @@ import { CatalogPage } from "./pages/CatalogPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ControlPage } from "./pages/ControlPage";
 import { ScriptsPage } from "./pages/ScriptsPage";
+import { ShopPage } from "./pages/ShopPage";
 import { SummaryPage } from "./pages/SummaryPage";
 import { StagePage } from "./stage/StagePage";
 
 const NAV = [
   ["/", "ห้องควบคุม LIVE"],
   ["/catalog", "สินค้าและโปรโมชั่น"],
+  ["/shop", "ร้านและหน้าจอ"],
   ["/characters", "ตัวละคร AI"],
   ["/scripts", "สคริปต์"],
   ["/summary", "สรุปผล LIVE"],
@@ -19,6 +21,8 @@ export function App() {
   if (route.startsWith("/stage")) return <StagePage />;
   const page = route.startsWith("/catalog") ? (
     <CatalogPage />
+  ) : route.startsWith("/shop") ? (
+    <ShopPage />
   ) : route.startsWith("/characters") ? (
     <CharactersPage />
   ) : route.startsWith("/scripts") ? (

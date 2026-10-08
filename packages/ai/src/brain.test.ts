@@ -116,3 +116,50 @@ describe("generateScript", () => {
     expect(plan.script.steps.some((s) => s.kind === "pitch_product")).toBe(false);
   });
 });
+
+import { matchFaq } from "./brain.js";
+describe("shop FAQ", () => {
+  const faqs = [
+    { id: "f1", topic: "จัดส่ง", keywords: ["ส่ง", "กี่วัน", "ขนส่ง"], answer: "จัดส่งภายใน 1-2 วันทำการค่ะ" },
+    { id: "f2", topic: "ชำระเงิน", keywords: ["ปลายทาง", "cod", "โอน"], answer: "มีเก็บเงินปลายทางค่ะ" },
+  ];
+  it("matches by keywords and prefers more specific hits", () => {
+    expect(matchFaq("ส่งกี่วันคะ", faqs)!.id).toBe("f1");
+    expect(matchFaq("มี COD ไหม", faqs)!.id).toBe("f2");
+    expect(matchFaq("สีอะไรบ้าง", faqs)).toBeUndefined();
+  });
+  it("answers shop questions from the FAQ, product facts from the catalog", async () => {
+    const brain = new HostBrain();
+    expect((await brain.answer("ส่งกี่วันคะ", { ...ctx, faqs })).text).toContain("1-2 วัน");
+    expect((await brain.answer("ราคาเท่าไหร่ ส่งฟรีไหม", { ...ctx, faqs })).text).toContain("299 บาท");
+  });
+});
+
+describe("findProduct", () => {
+  const bottle: Product = { ...product, id: "p3", sku: "BTL", name: "กระบอกน้ำเก็บอุณหภูมิ 750 ml", specs: { ความจุ: "750 ml" } };
+  const c2 = { ...ctx, products: [product, bottle], currentProductId: undefined };
+  it("finds a product from a partial name", async () => {
+    const brain = new HostBrain();
+    expect(brain.findProduct("เซรั่มขนาดเท่าไหร่คะ", c2)!.id).toBe("p1");
+    expect(brain.findProduct("กระบอกน้ำมีสีอะไร", c2)!.id).toBe("p3");
+    expect((await brain.answer("เซรั่มขนาดเท่าไหร่คะ", c2)).text).toContain("30 ml");
+  });
+  it("falls back to the product on screen", () => {
+    expect(new HostBrain().findProduct("ราคาเท่าไหร่", { ...c2, currentProductId: "p3" })!.id).toBe("p3");
+  });
+});
+
+describe("summary disclosure count", () => {
+  it("counts a multi-sentence disclosure once", () => {
+    const s: LiveSession = {
+      id: "l2", title: "t", characterId: "c1", productIds: [], status: "ENDED", startedAt: "2026-10-07T10:00:00.000Z", endedAt: "2026-10-07T10:40:00.000Z", manualStats: {},
+      events: [
+        { at: "2026-10-07T10:00:03.000Z", type: "disclosure" },
+        { at: "2026-10-07T10:00:08.000Z", type: "disclosure" },
+        { at: "2026-10-07T10:15:01.000Z", type: "disclosure" },
+        { at: "2026-10-07T10:15:05.000Z", type: "disclosure" },
+      ],
+    };
+    expect(summarizeLive(s, []).disclosures).toBe(2);
+  });
+});

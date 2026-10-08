@@ -6,7 +6,7 @@ import {
   isIdentityQuestion,
   type ClaimIssue,
 } from "@tlai/compliance";
-import { formatBaht, type HostCharacter, type Product, type Promotion } from "@tlai/shared";
+import { formatBaht, type FaqEntry, type HostCharacter, type Product, type Promotion } from "@tlai/shared";
 import type { LlmProvider } from "./llm.js";
 
 export interface BrainContext {
@@ -15,6 +15,28 @@ export interface BrainContext {
   promotions: Promotion[];
   currentProductId?: string;
   allowedPrices: number[];
+  /** Shop-wide answers for shipping, payment, returns and similar. */
+  faqs?: FaqEntry[];
+}
+
+const PRODUCT_FACT_QUESTION = /ราคา|เท่าไ|กี่บาท|โปร|ส่วนลด|ลดไหม|สต็อก|มีของ|ขนาด|ไซซ์|สี|วัสดุ|ส่วนผสม/;
+
+/** Rewrites polite particles so shop-written answers match the host's voice (ค่ะ / ครับ). */
+export function matchParticle(text: string, c: Pick<HostCharacter, "politeParticle">): string {
+  return c.politeParticle === "ครับ"
+    ? text.replace(/นะคะ/g, "นะครับ").replace(/ค่ะ/g, "ครับ")
+    : text.replace(/นะครับ/g, "นะคะ").replace(/ครับ/g, "ค่ะ");
+}
+
+/** Best shop FAQ for a question: the entry with the most keyword hits (longer keywords count more). */
+export function matchFaq(question: string, faqs: FaqEntry[] = []): FaqEntry | undefined {
+  const q = question.toLowerCase();
+  let best: { f: FaqEntry; score: number } | undefined;
+  for (const f of faqs) {
+    const score = f.keywords.reduce((s, k) => (k && q.includes(k.toLowerCase()) ? s + k.length : s), 0);
+    if (score > 0 && (!best || score > best.score)) best = { f, score };
+  }
+  return best?.f;
 }
 
 export interface BrainOutput {
@@ -89,9 +111,18 @@ export class HostBrain {
     const c = ctx.character;
     if (isIdentityQuestion(question)) return { text: identityAnswer(c), via: "identity", issues: [] };
     const product = this.findProduct(question, ctx);
+    const faq = matchFaq(question, ctx.faqs);
+    // Shop questions (shipping, payment, returns) are answered from the FAQ unless the viewer asks about product facts.
+    if (faq && !PRODUCT_FACT_QUESTION.test(question)) {
+      const text = matchParticle(faq.answer, c);
+      return this.guard(text, "template", ctx, product, text);
+    }
     const template = this.answerTemplate(question, product, ctx);
     if (!this.llm) return this.guard(template, "template", ctx, product, template);
-    const facts = (product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)).join("\n---\n");
+    const facts = [
+      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
+      ...(ctx.faqs ?? []).map((f) => `ข้อมูลร้าน (${f.topic}): ${f.answer}`),
+    ].join("\n---\n");
     const text = await this.llm
       .complete([
         { role: "system", content: systemPrompt(ctx) },
@@ -116,10 +147,21 @@ export class HostBrain {
     return this.guardSync(text, "template", ctx, product, text);
   }
 
+  /**
+   * Which product a question is about. Viewers rarely type the full name ("เซรั่ม" for
+   * "เซรั่มวิตามินซี 30 ml"), so the longest shared run of characters with each name decides;
+   * otherwise it is the product on screen.
+   */
   findProduct(text: string, ctx: BrainContext): Product | undefined {
     const t = text.toLowerCase();
-    const named = ctx.products.find((p) => t.includes(p.name.toLowerCase()) || t.includes(p.sku.toLowerCase()));
-    return named ?? ctx.products.find((p) => p.id === ctx.currentProductId);
+    const exact = ctx.products.find((p) => t.includes(p.name.toLowerCase()) || t.includes(p.sku.toLowerCase()));
+    if (exact) return exact;
+    let best: { p: Product; n: number } | undefined;
+    for (const p of ctx.products) {
+      const n = longestCommonRun(t, p.name.toLowerCase().replace(/\s+/g, ""));
+      if (n >= 4 && (!best || n > best.n)) best = { p, n };
+    }
+    return best?.p ?? ctx.products.find((p) => p.id === ctx.currentProductId);
   }
 
   pitchTemplate(p: Product, ctx: BrainContext): string {
@@ -142,7 +184,7 @@ export class HostBrain {
     const c = ctx.character;
     if (!p) return `ขอบคุณสำหรับคำถาม${end(c)} เรื่องนี้ขอให้ทีมงานตรวจสอบแล้วแจ้งในแชตอีกครั้ง${endQ(c)}`;
     for (const [k, v] of Object.entries(p.specs)) {
-      if (q.includes(k)) return `${p.name} ${k} ${v}${end(c)}`;
+      if (q.includes(k)) return `${k}ของ${p.name}${/[a-z0-9]$/i.test(p.name) ? " " : ""}คือ ${v}${/[a-z0-9]$/i.test(v) ? " " : ""}${end(c)}`;
     }
     if (/ราคา|เท่าไ|กี่บาท|price/i.test(q)) {
       return `${p.name} ราคา ${formatBaht(p.price)}${p.compareAtPrice ? ` จากราคาปกติ ${formatBaht(p.compareAtPrice)}` : ""}${end(c)}`;
@@ -173,4 +215,21 @@ export class HostBrain {
     if (!isBlocked(fbIssues) && !deniesBeingAi(fallback)) return { text: fallback, via: "fallback", issues };
     return { text: `ขอให้ทีมงานตรวจสอบข้อมูลก่อน${endQ(ctx.character)}`, via: "fallback", issues };
   }
+}
+
+/** Length of the longest substring shared by a and b (spaces in a ignored). */
+function longestCommonRun(a: string, b: string): number {
+  const x = a.replace(/\s+/g, "");
+  let best = 0;
+  const prev = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= x.length; i++) {
+    let diag = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]!;
+      prev[j] = x[i - 1] === b[j - 1] ? diag + 1 : 0;
+      if (prev[j]! > best) best = prev[j]!;
+      diag = tmp;
+    }
+  }
+  return best;
 }
