@@ -177,7 +177,7 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .photo-error { position: absolute; left: 8%; right: 8%; top: 40%; padding: 16px; border-radius: 12px; background: #000a; color: #fff; text-align: center; }
 .photo-host { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 16px; align-items: start; }
 .photo-host .tips { margin: 8px 0; padding-left: 18px; }
-.photo-host .consent { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; background: #2b2213; }
+.photo-host .consent { display: flex; flex-direction: row; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; background: #2b2213; }
 .photo-host .consent input { margin-top: 3px; }
 .photo-preview { display: grid; gap: 8px; }
 .photo-preview .frame { position: relative; width: 270px; aspect-ratio: 9 / 16; border-radius: 12px; overflow: hidden; background: #000; }

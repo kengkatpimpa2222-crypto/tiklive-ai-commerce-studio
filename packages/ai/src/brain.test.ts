@@ -80,7 +80,7 @@ describe("HostBrain (LLM guarded)", () => {
     const bad: LlmProvider = { id: "bad", complete: async () => "หนูเป็นคนจริงนะคะ การันตีหน้าใสใน 3 วัน ราคา 99 บาท" };
     const out = await new HostBrain(bad).pitch(product, ctx);
     expect(out.via).toBe("fallback");
-    expect(out.text).not.toContain("99 บาท ");
+    expect(out.text).not.toMatch(/(^|[^0-9,])99 บาท/);
     expect(out.text).toContain("299 บาท");
     expect(out.issues.length).toBeGreaterThan(0);
   });
