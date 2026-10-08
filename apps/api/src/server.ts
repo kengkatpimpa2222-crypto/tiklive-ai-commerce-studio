@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import { AI_PRESETS, createLlm, generateScript, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
+import { AI_PRESETS, BLOCKED_IMPORT_HOSTS, createLlm, generateScript, importProduct, metaToText, parsePageMeta, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
 import { summaryCsv, summaryMarkdown } from "./export.js";
 import { PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
@@ -201,18 +201,21 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
   const memoryUploads = new Map<string, Buffer>();
   const uploadsDir = opts.dataFile ? join(dirname(opts.dataFile), "uploads") : null;
+  const saveUpload = (buf: Buffer, ext: string): string => {
+    const name = `${newId("img")}.${ext}`;
+    if (uploadsDir) {
+      mkdirSync(uploadsDir, { recursive: true });
+      writeFileSync(join(uploadsDir, name), buf);
+    } else memoryUploads.set(name, buf);
+    return `/uploads/${name}`;
+  };
   app.post("/api/uploads", async (req, reply) => {
     const { filename, dataBase64 } = parse(z.object({ filename: z.string().min(1).max(200), dataBase64: z.string().min(1) }), req.body);
     const ext = filename.split(".").pop()!.toLowerCase();
     if (!IMAGE_TYPES[ext]) return reply.code(400).send({ error: "รองรับเฉพาะไฟล์รูป png, jpg, webp, gif" });
     const buf = Buffer.from(dataBase64.replace(/^data:[^,]+,/, ""), "base64");
     if (buf.length > 5 * 1024 * 1024) return reply.code(413).send({ error: "ไฟล์ใหญ่เกิน 5 MB" });
-    const name = `${newId("img")}.${ext}`;
-    if (uploadsDir) {
-      mkdirSync(uploadsDir, { recursive: true });
-      writeFileSync(join(uploadsDir, name), buf);
-    } else memoryUploads.set(name, buf);
-    return reply.code(201).send({ url: `/uploads/${name}` });
+    return reply.code(201).send({ url: saveUpload(buf, ext) });
   });
   app.get<{ Params: { name: string } }>("/uploads/:name", async (req, reply) => {
     const name = req.params.name;
@@ -222,6 +225,68 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     if (!buf) return reply.code(404).send();
     return reply.type(IMAGE_TYPES[ext]!).header("cache-control", "public, max-age=31536000, immutable").send(buf);
   });
+  // ---- product import: a pasted link (its preview metadata) or pasted text → draft for review ----
+  const fetchPage = async (url: URL, accept: string, maxBytes: number) => {
+    const f = opts.llmFetch ?? fetch;
+    const res = await f(url, { headers: { "user-agent": IMPORT_UA, accept }, redirect: "follow", signal: AbortSignal.timeout(12_000) });
+    const len = Number(res.headers.get("content-length") ?? 0);
+    if (len > maxBytes) throw new Error("too large");
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > maxBytes) throw new Error("too large");
+    return { res, buf };
+  };
+  /** Honour the site's robots.txt for our user agent (and "*"). */
+  const robotsAllow = async (url: URL): Promise<boolean> => {
+    try {
+      const { res, buf } = await fetchPage(new URL("/robots.txt", url), "text/plain", 512 * 1024);
+      if (!res.ok) return true;
+      return robotsAllows(buf.toString("utf8"), url.pathname + url.search);
+    } catch {
+      return true;
+    }
+  };
+  app.post("/api/products/import", async (req, reply) => {
+    const { url, text } = parse(z.object({ url: z.string().trim().optional(), text: z.string().trim().max(20_000).optional() }), req.body);
+    const llm = activeLlm();
+    if (text && !url) return importProduct(text, llm);
+    let u: URL;
+    try {
+      u = new URL(url ?? "");
+      if (!/^https?:$/.test(u.protocol)) throw new Error();
+    } catch {
+      return reply.code(400).send({ error: "ลิงก์ไม่ถูกต้อง ต้องขึ้นต้นด้วย http:// หรือ https://" });
+    }
+    if (BLOCKED_IMPORT_HOSTS.test(u.hostname)) {
+      return reply.code(422).send({ error: "ลิงก์ TikTok ดึงข้อมูลอัตโนมัติไม่ได้ เพราะ TikTok ไม่อนุญาตให้โปรแกรมอ่านหน้าเว็บ ให้คัดลอกชื่อ ราคา และรายละเอียดสินค้าจาก TikTok Shop Seller Center มาวางในช่องข้อความแทน", needsText: true });
+    }
+    if (!(await robotsAllow(u))) return reply.code(422).send({ error: "เว็บนี้ไม่อนุญาตให้โปรแกรมอ่านหน้าสินค้า ให้คัดลอกข้อความสินค้ามาวางแทน", needsText: true });
+    let html: string;
+    try {
+      const { res, buf } = await fetchPage(u, "text/html,application/xhtml+xml", 3 * 1024 * 1024);
+      if (!res.ok) throw new Error(String(res.status));
+      html = buf.toString("utf8");
+    } catch {
+      return reply.code(422).send({ error: "เปิดลิงก์นี้ไม่ได้ ให้คัดลอกข้อความสินค้ามาวางแทน", needsText: true });
+    }
+    const meta = parsePageMeta(html, u.href);
+    const pageText = [metaToText(meta), text].filter(Boolean).join("\n");
+    if (!meta.title || pageText.length < 20) return reply.code(422).send({ error: "หน้านี้ไม่มีข้อมูลสินค้าให้อ่าน ให้คัดลอกข้อความสินค้ามาวางแทน", needsText: true });
+    // Keep the product photo inside the app so the stage never depends on the shop's server.
+    let imageUrl: string | undefined;
+    if (meta.image) {
+      try {
+        const img = new URL(meta.image);
+        const { res, buf } = await fetchPage(img, "image/*", 5 * 1024 * 1024);
+        const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" } as Record<string, string>)[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
+        if (res.ok && ext) imageUrl = saveUpload(buf, ext);
+      } catch {
+        /* no photo is fine */
+      }
+    }
+    const result = await importProduct(pageText, llm, { imageUrl, sku: meta.sku });
+    return { ...result, source: u.hostname };
+  });
+
   // Registered before the CRUD routes so "generate" is not read as a script id.
   app.post("/api/scripts/generate", async (req, reply) => {
     const input = parse(
@@ -453,4 +518,36 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     store.flush();
   });
   return { app, store, director };
+}
+
+const IMPORT_UA = "TikLiveAIStudio/1.0 (product link preview; one request per pasted link)";
+
+/** Minimal robots.txt check: the longest matching Allow/Disallow rule for our agent or "*" wins. */
+export function robotsAllows(robots: string, path: string): boolean {
+  const groups: { agents: string[]; rules: { allow: boolean; path: string }[] }[] = [];
+  let cur: (typeof groups)[number] | null = null;
+  let lastWasAgent = false;
+  for (const raw of robots.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, "").trim();
+    const m = /^([a-z-]+)\s*:\s*(.*)$/i.exec(line);
+    if (!m) continue;
+    const key = m[1]!.toLowerCase();
+    const val = m[2]!.trim();
+    if (key === "user-agent") {
+      if (!cur || !lastWasAgent) groups.push((cur = { agents: [], rules: [] }));
+      cur.agents.push(val.toLowerCase());
+      lastWasAgent = true;
+    } else {
+      lastWasAgent = false;
+      if (cur && (key === "allow" || key === "disallow") && val) cur.rules.push({ allow: key === "allow", path: val });
+    }
+  }
+  const mine = groups.filter((g) => g.agents.some((a) => a !== "*" && "tikliveaistudio".includes(a)));
+  const rules = (mine.length ? mine : groups.filter((g) => g.agents.includes("*"))).flatMap((g) => g.rules);
+  let best: { allow: boolean; len: number } = { allow: true, len: -1 };
+  for (const r of rules) {
+    const re = new RegExp("^" + r.path.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\\\$$/, "$"));
+    if (re.test(path) && r.path.length > best.len) best = { allow: r.allow, len: r.path.length };
+  }
+  return best.allow;
 }

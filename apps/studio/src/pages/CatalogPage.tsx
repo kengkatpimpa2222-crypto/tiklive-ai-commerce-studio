@@ -13,6 +13,29 @@ export function CatalogPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [promo, setPromo] = useState({ title: "", detail: "", productIds: [] as string[], endsAt: "" });
   const [err, setErr] = useState("");
+  const [imp, setImp] = useState({ input: "", busy: false, msg: "", warnings: [] as string[], needsText: false });
+
+  /** A link (its preview data) or pasted product text → fills the form below for the seller to check. */
+  const runImport = async () => {
+    const input = imp.input.trim();
+    const isUrl = /^https?:\/\/\S+$/i.test(input);
+    setImp({ ...imp, busy: true, msg: "", warnings: [], needsText: false });
+    try {
+      const r = await api<{ draft: Record<string, unknown> & { highlights: string[]; specs: Record<string, string> }; via: string; warnings: string[] }>("/products/import", { body: isUrl ? { url: input } : { text: input } });
+      const d = r.draft;
+      setEditing(null);
+      setF({
+        sku: String(d.sku || ""), name: String(d.name ?? ""), description: String(d.description ?? ""),
+        price: d.price !== undefined ? String(d.price) : "", compareAtPrice: d.compareAtPrice !== undefined ? String(d.compareAtPrice) : "",
+        stock: "", category: String(d.category ?? ""), imageUrl: String(d.imageUrl ?? ""),
+        highlights: d.highlights.join("\n"), specs: Object.entries(d.specs).map(([k, v]) => `${k}: ${v}`).join("\n"),
+      });
+      setImp({ input: "", busy: false, warnings: r.warnings, needsText: false, msg: r.via === "llm" ? "AI กรอกข้อมูลและเขียนจุดขายให้แล้ว ตรวจให้ถูกต้อง ใส่ SKU และสต็อก แล้วกดบันทึก" : "กรอกข้อมูลเบื้องต้นให้แล้ว ตรวจ ใส่ SKU และสต็อก แล้วกดบันทึก (เปิดสมอง AI จะได้จุดขายที่พร้อมพูดในไลฟ์)" });
+    } catch (e) {
+      const data = (e as { data?: { needsText?: boolean } }).data;
+      setImp({ ...imp, busy: false, msg: `⚠ ${(e as Error).message}`, warnings: [], needsText: !!data?.needsText });
+    }
+  };
 
   const edit = (p: Product) => {
     setEditing(p.id);
@@ -111,6 +134,24 @@ export function CatalogPage() {
         </div>
       </div>
 
+      <div>
+      <div className="form card import-card">
+        <h2>เพิ่มสินค้าจากลิงก์หรือข้อความ</h2>
+        <textarea
+          placeholder={"วางลิงก์หน้าสินค้าจากเว็บร้าน หรือคัดลอกชื่อ ราคา รายละเอียดสินค้า (เช่น จาก TikTok Shop Seller Center) มาวางที่นี่"}
+          value={imp.input}
+          onChange={(e) => setImp({ ...imp, input: e.target.value })}
+        />
+        <div className="row">
+          <button className="primary" disabled={!imp.input.trim() || imp.busy} onClick={runImport}>{imp.busy ? "กำลังประมวลผล…" : "ประมวลผล"}</button>
+        </div>
+        {imp.msg && <div className="msg">{imp.msg}</div>}
+        {imp.warnings.length > 0 && <ul className="warn-list">{imp.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+        <p className="note">
+          ลิงก์เว็บร้านทั่วไปอ่านได้จากข้อมูลตัวอย่างสินค้าที่เว็บเปิดให้ (ชื่อ ราคา รูป รายละเอียด) ส่วนลิงก์ TikTok ระบบไม่เปิดอ่าน เพราะ TikTok ไม่อนุญาต ให้คัดลอกข้อความสินค้ามาวางแทน
+          ราคาที่ใช้ต้องมีอยู่ในข้อมูลต้นทางเท่านั้น และจุดขายที่อาจผิดกฎโฆษณาจะถูกตัดออก
+        </p>
+      </div>
       <div className="form card">
         <h2>{editing ? "แก้ไขสินค้า" : "เพิ่มสินค้า"}</h2>
         <input placeholder="SKU" value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} />
@@ -134,6 +175,7 @@ export function CatalogPage() {
           <button className="primary" onClick={save}>บันทึก</button>
           {editing && <button onClick={() => { setEditing(null); setF(emptyProduct); }}>ยกเลิก</button>}
         </div>
+      </div>
       </div>
     </div>
   );

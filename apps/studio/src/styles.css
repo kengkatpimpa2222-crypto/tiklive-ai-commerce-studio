@@ -200,3 +200,7 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .realistic-cta div { flex: 1; font-size: 13px; line-height: 1.5; }
 .realistic-cta a { white-space: nowrap; }
 .realistic-cta a.button { margin: 0; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+/* Product import from a link or pasted text */
+.import-card textarea { min-height: 90px; }
+.warn-list { margin: 6px 0; padding-left: 18px; color: var(--warn); font-size: 13px; line-height: 1.5; }

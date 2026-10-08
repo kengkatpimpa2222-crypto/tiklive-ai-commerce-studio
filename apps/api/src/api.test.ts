@@ -245,3 +245,32 @@ describe("restart", () => {
     await second.app.close();
   });
 });
+
+describe("product import API", () => {
+  const page = `<meta property="og:title" content="กระบอกน้ำ 750 ml"><meta property="og:description" content="เก็บเย็น 24 ชม. ฝาล็อกกันหก วัสดุสแตนเลส"><meta property="product:price:amount" content="390">`;
+  const fakeFetch = (async (u: URL | string) => {
+    const url = String(u);
+    if (url.endsWith("/robots.txt")) return new Response("User-agent: *\nDisallow: /private/\n", { status: 200 });
+    return new Response(page, { status: 200, headers: { "content-type": "text/html" } });
+  }) as unknown as typeof fetch;
+
+  it("refuses TikTok links and asks for pasted text instead", async () => {
+    const r = await ctx.app.inject({ method: "POST", url: "/api/products/import", payload: { url: "https://shop.tiktok.com/view/product/123" } });
+    expect(r.statusCode).toBe(422);
+    expect(json(r)).toMatchObject({ needsText: true });
+  });
+
+  it("drafts from a shop page's preview data and respects robots.txt", async () => {
+    const app = (await buildServer({ dataFile: null, llmFetch: fakeFetch })).app;
+    const ok = json(await app.inject({ method: "POST", url: "/api/products/import", payload: { url: "https://myshop.example/p/1" } }));
+    expect(ok.draft).toMatchObject({ name: "กระบอกน้ำ 750 ml", price: 390 });
+    const blocked = await app.inject({ method: "POST", url: "/api/products/import", payload: { url: "https://myshop.example/private/p/1" } });
+    expect(blocked.statusCode).toBe(422);
+    await app.close();
+  });
+
+  it("drafts from pasted text", async () => {
+    const r = json(await ctx.app.inject({ method: "POST", url: "/api/products/import", payload: { text: "เสื้อยืดโอเวอร์ไซซ์\nราคา 259 บาท\n- ผ้าคอตตอน 100%\nไซซ์: M, L, XL" } }));
+    expect(r.draft).toMatchObject({ name: "เสื้อยืดโอเวอร์ไซซ์", price: 259, highlights: ["ผ้าคอตตอน 100%"], specs: { ไซซ์: "M, L, XL" } });
+  });
+});
