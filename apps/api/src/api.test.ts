@@ -172,3 +172,20 @@ describe("shop FAQ, settings and uploads", () => {
     expect((await ctx.app.inject({ method: "GET", url: "/uploads/..%2Fstudio.json" })).statusCode).toBe(404);
   });
 });
+
+describe("comment capture", () => {
+  it("is unavailable outside the desktop app", async () => {
+    expect(json(await ctx.app.inject({ method: "GET", url: "/api/capture" }))).toEqual({ available: false });
+    expect((await ctx.app.inject({ method: "PATCH", url: "/api/capture", payload: { clipboardWatch: true } })).statusCode).toBe(404);
+  });
+
+  it("toggles clipboard watch through the desktop hook and tags question sources", async () => {
+    await ctx.app.close();
+    let state = { clipboardWatch: false, sendClipboardHotkey: "Ctrl+Shift+A", quickAskHotkey: "Ctrl+Shift+Q" };
+    ctx = await buildServer({ dataFile: null, capture: { get: () => state, set: (p) => (state = { ...state, ...p }) } });
+    const r = json(await ctx.app.inject({ method: "PATCH", url: "/api/capture", payload: { clipboardWatch: true } }));
+    expect(r).toMatchObject({ available: true, clipboardWatch: true });
+    const q = json(await ctx.app.inject({ method: "POST", url: "/api/questions", payload: { text: "ส่งกี่วันคะ", source: "clipboard" } }));
+    expect(q.source).toBe("clipboard");
+  });
+});

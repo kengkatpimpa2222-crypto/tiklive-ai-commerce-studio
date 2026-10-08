@@ -66,6 +66,9 @@ importers:
       '@tlai/api':
         specifier: workspace:*
         version: link:../api
+      '@tlai/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       electron:
         specifier: ^33.2.1
         version: 33.4.11

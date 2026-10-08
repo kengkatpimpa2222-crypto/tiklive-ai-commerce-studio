@@ -2,6 +2,7 @@ import { useHash } from "./lib/useHash";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ControlPage } from "./pages/ControlPage";
+import { QuickAskPage } from "./pages/QuickAskPage";
 import { ScriptsPage } from "./pages/ScriptsPage";
 import { ShopPage } from "./pages/ShopPage";
 import { SummaryPage } from "./pages/SummaryPage";
@@ -19,6 +20,7 @@ const NAV = [
 export function App() {
   const route = useHash();
   if (route.startsWith("/stage")) return <StagePage />;
+  if (route.startsWith("/quick")) return <QuickAskPage />;
   const page = route.startsWith("/catalog") ? (
     <CatalogPage />
   ) : route.startsWith("/shop") ? (

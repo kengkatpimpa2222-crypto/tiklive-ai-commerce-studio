@@ -1,6 +1,7 @@
 import { EMOTIONS, GESTURES, type HostCharacter, type LiveScript, type LiveSession, type Product, type Promotion, type Scene, type ViewerQuestion } from "@tlai/shared";
 import { useEffect, useState } from "react";
 import { api, connect } from "../lib/api";
+import { CaptureToggle } from "../lib/CaptureToggle";
 import { useData } from "../lib/useData";
 
 interface DirectorState {
@@ -345,13 +346,15 @@ export function ControlPage() {
             <input type="radio" checked={state?.qaMode === "review"} onChange={() => director("qa-mode", { mode: "review" })} /> ให้คนอนุมัติก่อน
           </label>
         </div>
+        <CaptureToggle />
+        <a className="button" href="#/quick" target="_blank" rel="noreferrer">เปิดกล่องถามด่วน (ลอยเหนือ TikTok LIVE Studio) ↗</a>
         <div className="q-input">
           <input placeholder="ชื่อผู้ถาม (ไม่บังคับ)" value={qAuthor} onChange={(e) => setQAuthor(e.target.value)} />
           <input
             placeholder="คัดลอกคำถามจากแชต TikTok มาวาง"
             value={qText}
             onChange={(e) => setQText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && qText.trim() && run(async () => { await api("/questions", { body: { text: qText, author: qAuthor || undefined } }); setQText(""); reloadQuestions(); })}
+            onKeyDown={(e) => e.key === "Enter" && qText.trim() && run(async () => { await api("/questions", { body: { text: qText, author: qAuthor || undefined, source: "manual" } }); setQText(""); reloadQuestions(); })}
           />
         </div>
         <ul className="questions">
@@ -375,7 +378,7 @@ export function ControlPage() {
           ))}
           {pending.length === 0 && <li className="empty">ยังไม่มีคำถามที่รอตอบ</li>}
         </ul>
-        <p className="note">ระบบไม่ดึงคอมเมนต์จาก TikTok เอง ผู้ควบคุมคัดลอกคำถามมาวาง หรือใช้ API ทางการเมื่อได้รับอนุมัติ</p>
+        <p className="note">TikTok ยังไม่มี API ทางการให้แอปอ่านคอมเมนต์ LIVE ระบบจึงไม่ดึงคอมเมนต์เอง (ไม่ scrape) ผู้ควบคุมแค่คัดลอกคอมเมนต์ แล้ว AI ตอบให้อัตโนมัติ</p>
       </section>
     </div>
   );

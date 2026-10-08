@@ -1,5 +1,6 @@
-import { buildServer, providersFromEnv } from "@tlai/api";
-import { app, BrowserWindow, clipboard, dialog, Menu, shell } from "electron";
+import { buildServer, providersFromEnv, type CaptureState } from "@tlai/api";
+import { parseCopiedComment } from "@tlai/shared";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, Notification, shell } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,6 +12,65 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 let control: BrowserWindow | null = null;
 let stage: BrowserWindow | null = null;
+let quick: BrowserWindow | null = null;
+let server: Awaited<ReturnType<typeof buildServer>>["app"] | null = null;
+
+// ---------- comment capture ----------
+// TikTok has no public API that lets an app read LIVE comments, and scraping is off the
+// table. So the operator stays in the loop with the lightest possible step: copy a
+// comment (Ctrl+C) and the AI host answers it. Nothing here reads TikTok itself.
+
+const SEND_CLIPBOARD = "CommandOrControl+Shift+A";
+const QUICK_ASK = "CommandOrControl+Shift+Q";
+const capture: CaptureState = { clipboardWatch: false, sendClipboardHotkey: "Ctrl+Shift+A", quickAskHotkey: "Ctrl+Shift+Q" };
+let lastClip = "";
+const recentlySent = new Map<string, number>();
+
+async function sendAsQuestion(raw: string, source: "clipboard"): Promise<boolean> {
+  const c = parseCopiedComment(raw);
+  if (!c || !server) return false;
+  // Copying the same comment twice within two minutes is a slip, not a new question.
+  const key = c.text.toLowerCase();
+  const now = Date.now();
+  for (const [k, t] of recentlySent) if (now - t > 120_000) recentlySent.delete(k);
+  if (recentlySent.has(key)) return false;
+  recentlySent.set(key, now);
+  const res = await server.inject({ method: "POST", url: "/api/questions", payload: { ...c, source } });
+  if (res.statusCode !== 201) return false;
+  if (Notification.isSupported()) new Notification({ title: "ส่งให้ AI ตอบแล้ว", body: c.author ? `${c.author}: ${c.text}` : c.text, silent: true }).show();
+  return true;
+}
+
+function ourWindowFocused(): boolean {
+  return BrowserWindow.getFocusedWindow() !== null;
+}
+
+setInterval(() => {
+  const text = clipboard.readText();
+  if (text === lastClip) return;
+  lastClip = text;
+  // Copies made inside the studio itself (editing products, scripts...) are never questions.
+  if (capture.clipboardWatch && !ourWindowFocused()) void sendAsQuestion(text, "clipboard");
+}, 400);
+
+const captureControl = {
+  get: () => ({ ...capture }),
+  set: (p: Partial<Pick<CaptureState, "clipboardWatch">>) => {
+    if (p.clipboardWatch !== undefined) {
+      capture.clipboardWatch = p.clipboardWatch;
+      // Start fresh so whatever was already on the clipboard is not sent.
+      lastClip = clipboard.readText();
+    }
+    buildMenu();
+    return { ...capture };
+  },
+};
+
+function registerHotkeys(): void {
+  const ok1 = globalShortcut.register(SEND_CLIPBOARD, () => void sendAsQuestion(clipboard.readText(), "clipboard"));
+  const ok2 = globalShortcut.register(QUICK_ASK, openQuick);
+  if (!ok1 || !ok2) dialog.showErrorBox("ปุ่มลัดถูกใช้อยู่", "โปรแกรมอื่นจองปุ่มลัด Ctrl+Shift+A หรือ Ctrl+Shift+Q ไว้แล้ว ยังใช้กล่องถามด่วนจากเมนูได้ตามปกติ");
+}
 
 function loadEnv(): void {
   const file = join(app.getPath("userData"), ".env");
@@ -30,6 +90,10 @@ function harden(win: BrowserWindow): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(ORIGIN) && url.includes("#/stage")) {
       openStage();
+      return { action: "deny" };
+    }
+    if (url.startsWith(ORIGIN) && url.includes("#/quick")) {
+      openQuick();
       return { action: "deny" };
     }
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
@@ -52,6 +116,7 @@ function openControl(): void {
   control.on("closed", () => {
     control = null;
     stage?.close();
+    quick?.close();
   });
 }
 
@@ -64,6 +129,19 @@ function openStage(): void {
   stage.on("page-title-updated", (e) => e.preventDefault());
   void stage.loadURL(`${ORIGIN}/#/stage`);
   stage.on("closed", () => (stage = null));
+}
+
+/** Small always-on-top box that sits next to TikTok LIVE Studio: type a comment, press Enter. */
+function openQuick(): void {
+  if (quick) {
+    quick.show();
+    return quick.focus();
+  }
+  quick = new BrowserWindow({ width: 420, height: 560, title: "ถามด่วน (AI ตอบ)", alwaysOnTop: true, backgroundColor: "#0f1117", webPreferences });
+  harden(quick);
+  quick.setMenuBarVisibility(false);
+  void quick.loadURL(`${ORIGIN}/#/quick`);
+  quick.on("closed", () => (quick = null));
 }
 
 function buildMenu(): void {
@@ -80,6 +158,14 @@ function buildMenu(): void {
         ],
       },
       {
+        label: "คำถามลูกค้า",
+        submenu: [
+          { label: "เปิดกล่องถามด่วน", accelerator: "CmdOrCtrl+Shift+Q", click: openQuick },
+          { label: "ส่งข้อความที่คัดลอกไว้ให้ AI ตอบ", accelerator: "CmdOrCtrl+Shift+A", click: () => void sendAsQuestion(clipboard.readText(), "clipboard") },
+          { label: "คัดลอกคอมเมนต์ = ส่งให้ AI ตอบทันที", type: "checkbox", checked: capture.clipboardWatch, click: (item) => captureControl.set({ clipboardWatch: item.checked }) },
+        ],
+      },
+      {
         label: "TikTok",
         submenu: [
           { label: "เปิด TikTok LIVE Studio (ดาวน์โหลด)", click: () => void shell.openExternal("https://www.tiktok.com/studio/download") },
@@ -93,22 +179,29 @@ function buildMenu(): void {
 
 app.whenReady().then(async () => {
   loadEnv();
+  // Windows only shows toast notifications ("ส่งให้ AI ตอบแล้ว") for apps with an AppUserModelID.
+  if (process.platform === "win32") app.setAppUserModelId("studio.tiklive.ai-commerce");
   try {
-    const { app: server } = await buildServer({
+    const built = await buildServer({
       dataFile: join(app.getPath("userData"), "studio.json"),
       staticDir: studioDir(),
+      capture: captureControl,
       ...providersFromEnv(),
     });
+    server = built.app;
     await server.listen({ port: PORT, host: "127.0.0.1" });
-    app.on("before-quit", () => void server.close());
+    app.on("before-quit", () => void server?.close());
   } catch (e) {
     dialog.showErrorBox("เริ่มระบบไม่สำเร็จ", `เปิดเซิร์ฟเวอร์ภายในที่พอร์ต ${PORT} ไม่ได้: ${(e as Error).message}`);
     app.quit();
     return;
   }
   buildMenu();
+  registerHotkeys();
   openControl();
   openStage();
 });
+
+app.on("will-quit", () => globalShortcut.unregisterAll());
 
 app.on("window-all-closed", () => app.quit());

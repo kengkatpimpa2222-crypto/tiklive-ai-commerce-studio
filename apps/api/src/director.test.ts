@@ -46,6 +46,22 @@ describe("LiveDirector", () => {
     expect(shown.size).toBe(3);
   });
 
+  it("answers several viewer questions back-to-back in auto mode", async () => {
+    director.start(makeSession());
+    await vi.advanceTimersByTimeAsync(30_000);
+    const qs = ["ส่งกี่วันคะ", "มีโปรไหม", "เป็นคนจริงไหม"].map((t, i) => director.addQuestion(t, `v${i}`, "clipboard"));
+    const before = sent.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(qs.every((q) => store.get("questions", q.id)!.status === "answered")).toBe(true);
+    // All three answers come before the host goes back to script/free talk lines.
+    // Lines already queued may finish first; after that, all three answers play without script/free talk in between.
+    const after = sent.slice(before).flatMap((c) => (c.type === "speak" ? [c.segment] : []));
+    const start = after.findIndex((seg) => seg.source === "qa");
+    const run = after.slice(start);
+    const stop = run.findIndex((seg) => seg.source !== "qa" && seg.source !== "disclosure");
+    expect(run.slice(0, stop === -1 ? undefined : stop).filter((seg) => seg.source === "qa").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("does not answer on its own in review mode", async () => {
     director.qaMode = "review";
     director.start(makeSession());

@@ -43,6 +43,22 @@ export interface ServerOptions {
   freeTalkAfterMs?: number;
   rotateEveryTurns?: number;
   logger?: boolean;
+  /** Desktop-only comment capture (clipboard watch + hotkeys), owned by the Electron main process. */
+  capture?: CaptureControl;
+}
+
+export interface CaptureState {
+  /** Every text the operator copies (Ctrl+C) outside the app becomes a viewer question. */
+  clipboardWatch: boolean;
+  /** Global hotkey that sends the current clipboard as a question. */
+  sendClipboardHotkey: string;
+  /** Global hotkey that shows the Quick Ask box. */
+  quickAskHotkey: string;
+}
+
+export interface CaptureControl {
+  get(): CaptureState;
+  set(patch: Partial<Pick<CaptureState, "clipboardWatch">>): CaptureState;
 }
 
 export function providersFromEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -308,8 +324,8 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   // ---- viewer questions (typed/pasted by the operator, or from an approved API) ----
   app.get("/api/questions", async () => store.list("questions").slice(-200).reverse());
   app.post("/api/questions", async (req, reply) => {
-    const { text, author } = parse(questionInput, req.body);
-    return reply.code(201).send(director.addQuestion(text, author));
+    const { text, author, source } = parse(questionInput, req.body);
+    return reply.code(201).send(director.addQuestion(text, author, source));
   });
   app.post<{ Params: { id: string } }>("/api/questions/:id/draft", async (req, reply) => {
     const t = await director.draftAnswer(req.params.id);
@@ -323,6 +339,13 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   app.post<{ Params: { id: string } }>("/api/questions/:id/skip", async (req) => {
     director.skipQuestion(req.params.id);
     return { ok: true };
+  });
+
+  // ---- comment capture helpers (desktop app only; the operator copies, nothing is read from TikTok) ----
+  app.get("/api/capture", async () => (opts.capture ? { available: true, ...opts.capture.get() } : { available: false }));
+  app.patch("/api/capture", async (req, reply) => {
+    if (!opts.capture) return reply.code(404).send({ error: "ใช้ได้เฉพาะในแอป Windows" });
+    return { available: true, ...opts.capture.set(parse(z.object({ clipboardWatch: z.boolean() }), req.body)) };
   });
 
   // ---- TikTok (official channels only) ----

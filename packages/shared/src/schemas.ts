@@ -81,6 +81,7 @@ export const liveSessionInput = z.object({
 export const questionInput = z.object({
   text: z.string().min(1).max(500),
   author: z.string().max(60).optional(),
+  source: z.enum(["manual", "quick", "clipboard"]).optional(),
 });
 
 export const manualStatsInput = z.object({

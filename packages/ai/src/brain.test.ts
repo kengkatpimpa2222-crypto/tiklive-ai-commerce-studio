@@ -34,6 +34,27 @@ describe("HostBrain (offline)", () => {
   });
 });
 
+describe("HostBrain with no product on screen", () => {
+  const none = { ...ctx, currentProductId: undefined };
+  it("answers promo and lineup questions from shop data", async () => {
+    const brain = new HostBrain();
+    expect((await brain.answer("มีโปรอะไรบ้างคะ", none)).text).toContain("ซื้อครบ 2 ขวด ส่งฟรี");
+    expect((await brain.answer("วันนี้ขายอะไรบ้าง", none)).text).toContain("299 บาท");
+  });
+  it("answers the lineup question even while a product is on screen", async () => {
+    expect((await new HostBrain().answer("วันนี้ขายอะไรบ้าง", ctx)).text).toContain("วันนี้มี เซรั่มวิตามินซี ราคา 299 บาท");
+  });
+});
+
+describe("HostBrain free talk", () => {
+  it("answers a common shop question before anyone asks", () => {
+    const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ร้านจัดส่งภายใน 1-2 วันค่ะ" }];
+    const brain = new HostBrain();
+    expect(brain.freeTalk(product, { ...ctx, faqs }, 2).text).toContain("ร้านจัดส่งภายใน 1-2 วัน");
+    expect(brain.freeTalk(product, { ...ctx, faqs }, 1).text).not.toContain("จัดส่ง");
+  });
+});
+
 describe("HostBrain (LLM guarded)", () => {
   it("replaces non-compliant LLM output with the safe template", async () => {
     const bad: LlmProvider = { id: "bad", complete: async () => "หนูเป็นคนจริงนะคะ การันตีหน้าใสใน 3 วัน ราคา 99 บาท" };

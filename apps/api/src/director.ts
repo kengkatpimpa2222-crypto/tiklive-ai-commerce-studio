@@ -62,6 +62,8 @@ const LINK = /(https?:\/\/|www\.|\.com\b|line\s*id|@\w{3,})/i;
  * time, inserts AI disclosures, answers viewer questions and logs everything
  * for the summary. Every sentence is compliance-checked right before it is sent.
  */
+const QA_STREAK = 3;
+
 export class LiveDirector {
   private queue: SpeechSegment[] = [];
   private speaking: SpeechSegment | null = null;
@@ -74,7 +76,8 @@ export class LiveDirector {
   private script: LiveScript | undefined;
   private scriptIndex = 0;
   private qaBudget = 0;
-  private qaBetweenSteps = true;
+  /** Questions the host may answer back-to-back before returning to the script; viewers should not wait long. */
+  private qaBetweenSteps = QA_STREAK;
   private lastDisclosureAt = 0;
   private freeTalkTurn = 0;
   private currentProductId: string | null = null;
@@ -279,13 +282,13 @@ export class LiveDirector {
     if (next) return this.speak(next);
 
     const pending = this.pendingQuestions();
-    if (this.qaMode === "auto" && pending.length && (this.qaBudget > 0 || this.qaBetweenSteps)) {
+    if (this.qaMode === "auto" && pending.length && (this.qaBudget > 0 || this.qaBetweenSteps > 0)) {
       if (this.qaBudget > 0) this.qaBudget--;
-      else this.qaBetweenSteps = false;
+      else this.qaBetweenSteps--;
       return void this.runAsync(() => this.answerQuestion(pending[0]!.id));
     }
     this.qaBudget = 0;
-    this.qaBetweenSteps = true;
+    this.qaBetweenSteps = QA_STREAK;
     if (this.script && this.scriptIndex < this.script.steps.length) {
       const step = this.script.steps[this.scriptIndex++]!;
       return void this.runAsync(() => this.runStep(step));
@@ -466,7 +469,7 @@ export class LiveDirector {
     this.script = undefined;
     this.scriptIndex = 0;
     this.qaBudget = 0;
-    this.qaBetweenSteps = true;
+    this.qaBetweenSteps = QA_STREAK;
     this.lastDisclosureAt = 0;
     this.freeTalkTurn = 0;
     this.currentProductId = null;

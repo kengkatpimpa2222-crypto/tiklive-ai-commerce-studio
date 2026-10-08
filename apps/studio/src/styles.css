@@ -146,3 +146,30 @@ label.inline { flex-direction: row !important; align-items: center; gap: 8px; co
 /* The stage is window-captured: never paint scrollbars, even when the host is scaled past the edge. */
 html:has(.stage) ::-webkit-scrollbar,
 html:has(.stage)::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ---- comment capture + quick ask ---- */
+a.button { display: inline-block; margin: 6px 0 10px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: #222736; color: var(--text); text-decoration: none; font-size: 13px; }
+a.button:hover { border-color: var(--accent2); }
+.capture { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; background: #121521; }
+.capture.on { border-color: var(--ok); background: #0f2219; }
+.capture .switch { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.capture .switch input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--ok); }
+.capture .switch small { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.capture .hotkeys { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 11px; color: var(--text); font-family: inherit; margin-right: 6px; }
+.quick { padding: 14px; display: grid; gap: 10px; }
+.quick header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; }
+.quick .pill { font-size: 12px; padding: 2px 10px; border-radius: 99px; background: #222736; color: var(--muted); }
+.quick .pill.live { background: var(--accent); color: #fff; }
+.quick input.big { font-size: 17px; padding: 12px; border-color: #3a4152; }
+.quick input.big:focus { outline: none; border-color: var(--accent2); }
+.quick .row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.quick .warn { background: #2b2213; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 13px; color: #ffe2a8; }
+.quick .warn button { margin-left: 4px; }
+.quick .recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.quick .recent li { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 14px; }
+.quick .recent li small { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+.quick .recent li.answered { border-color: #1e5a3e; }
+.quick .recent li.answered small { color: var(--ok); }
+.quick .recent li.blocked small { color: var(--bad); }
+.quick .recent li.empty { color: var(--muted); text-align: center; }

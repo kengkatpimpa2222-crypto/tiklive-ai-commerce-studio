@@ -142,7 +142,8 @@ export interface ViewerQuestion {
   text: string;
   /** Display name typed by the operator or delivered by an approved API. Never scraped. */
   author?: string;
-  source: "manual" | "official_api";
+  /** manual: typed in Studio; quick: Quick Ask box; clipboard: copied by the operator; official_api: an approved TikTok API. */
+  source: "manual" | "quick" | "clipboard" | "official_api";
   receivedAt: string;
   status: "pending" | "answered" | "skipped" | "blocked";
   answer?: string;

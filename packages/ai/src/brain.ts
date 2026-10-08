@@ -47,6 +47,9 @@ export interface BrainOutput {
 }
 
 const end = (c: HostCharacter) => c.politeParticle;
+/** "ลด 10%" + "ค่ะ" reads as "ลด 10% ค่ะ" when spoken; Thai text runs straight into the particle. */
+const spaced = (t: string) => (/[a-z0-9%)]$/i.test(t) ? `${t} ` : t);
+const LINEUP_QUESTION = /ขายอะไร|มีอะไรบ้าง|มีสินค้าอะไร|มีของอะไร|มีกี่แบบ|มีกี่อย่าง/;
 const endQ = (c: HostCharacter) => (c.politeParticle === "ค่ะ" ? "นะคะ" : "นะครับ");
 
 function promosFor(p: Product, promos: Promotion[]): Promotion[] {
@@ -143,7 +146,10 @@ export class HostBrain {
           `${product.name} ตอนนี้ราคา ${formatBaht(product.price)} กดดูที่ตะกร้าได้เลย${end(c)}`,
         ]
       : [`ใครสนใจสินค้าตัวไหน พิมพ์ชื่อสินค้ามาได้เลย${endQ(c)}`, `ยินดีต้อนรับทุกคนที่เพิ่งเข้ามา${end(c)} ${c.name}เป็นผู้ช่วย AI ของร้าน${end(c)}`];
-    const text = lines[turn % lines.length]!;
+    // Every third line, answer a common shop question before anyone has to ask it.
+    const faqs = ctx.faqs ?? [];
+    const faq = faqs.length && turn % 3 === 2 ? faqs[Math.floor(turn / 3) % faqs.length] : undefined;
+    const text = faq ? `เผื่อใครสงสัยเรื่อง${faq.topic}${end(c)} ${faq.answer}` : lines[turn % lines.length]!;
     return this.guardSync(text, "template", ctx, product, text);
   }
 
@@ -182,7 +188,18 @@ export class HostBrain {
 
   answerTemplate(q: string, p: Product | undefined, ctx: BrainContext): string {
     const c = ctx.character;
-    if (!p) return `ขอบคุณสำหรับคำถาม${end(c)} เรื่องนี้ขอให้ทีมงานตรวจสอบแล้วแจ้งในแชตอีกครั้ง${endQ(c)}`;
+    const lineup = ctx.products.filter((x) => x.status === "ACTIVE").slice(0, 3);
+    const lineupAnswer = () => `วันนี้มี ${lineup.map((x) => `${x.name} ราคา ${formatBaht(x.price)}`).join(" ")}${end(c)} สนใจตัวไหนพิมพ์ชื่อมาได้เลย${endQ(c)}`;
+    if (lineup.length && LINEUP_QUESTION.test(q)) return lineupAnswer();
+    if (!p) {
+      // No product on screen and none named: answer about the shop as a whole where the facts allow.
+      if (/โปร|ลด|ส่วนลด|แถม|ส่งฟรี|โค้ด/i.test(q)) {
+        const promos = ctx.promotions.filter((x) => x.active);
+        if (promos.length) return `ตอนนี้มีโปร ${spaced(promos.map((x) => `${x.title} ${x.detail}`).join(" และ "))}${end(c)}`;
+      }
+      if (lineup.length && /ราคา|เท่าไ|กี่บาท|สินค้า/i.test(q)) return lineupAnswer();
+      return `ขอบคุณสำหรับคำถาม${end(c)} เรื่องนี้ขอให้ทีมงานตรวจสอบแล้วแจ้งในแชตอีกครั้ง${endQ(c)}`;
+    }
     for (const [k, v] of Object.entries(p.specs)) {
       if (q.includes(k)) return `${k}ของ${p.name}${/[a-z0-9]$/i.test(p.name) ? " " : ""}คือ ${v}${/[a-z0-9]$/i.test(v) ? " " : ""}${end(c)}`;
     }
@@ -192,7 +209,7 @@ export class HostBrain {
     if (/โปร|ลด|ส่วนลด|แถม|ส่งฟรี/i.test(q)) {
       const promos = promosFor(p, ctx.promotions);
       return promos.length
-        ? `ตอนนี้มีโปร ${promos.map((x) => `${x.title} ${x.detail}`).join(" และ ")}${end(c)}`
+        ? `ตอนนี้มีโปร ${spaced(promos.map((x) => `${x.title} ${x.detail}`).join(" และ "))}${end(c)}`
         : `สำหรับ${p.name} ตอนนี้ยังไม่มีโปรเพิ่มเติม${end(c)} ราคา ${formatBaht(p.price)}${end(c)}`;
     }
     if (/มีของ|หมด|สต็อก|เหลือ|พร้อมส่ง/i.test(q)) {
