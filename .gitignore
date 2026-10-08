@@ -6,3 +6,4 @@ release
 .turbo
 *.log
 data/*.json
+apps/studio/public/mediapipe/wasm/

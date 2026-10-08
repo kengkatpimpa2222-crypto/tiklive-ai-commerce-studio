@@ -3,6 +3,7 @@ import { formatBaht, type HostCharacter, type Product, type Promotion, type Scen
 import { useEffect, useRef, useState } from "react";
 import { connect } from "../lib/api";
 import { Avatar } from "./Avatar";
+import { PhotoAvatar } from "./PhotoAvatar";
 import { SpeechEngine } from "./speech";
 
 const DEFAULT_CHARACTER: HostCharacter = {
@@ -133,7 +134,7 @@ export function StagePage() {
           </div>
         )}
         <div className="avatar-wrap" style={avatarStyle}>
-          {frame && <Avatar frame={frame} character={character} />}
+          {frame && (character.look.style === "photo" && character.look.photo ? <PhotoAvatar frame={frame} photo={character.look.photo} /> : <Avatar frame={frame} character={character} />)}
         </div>
         {settings?.shopName && <div className="shop-name">{settings.shopName}</div>}
 

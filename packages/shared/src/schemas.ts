@@ -52,7 +52,17 @@ export const characterInput = z.object({
     eyes: z.string(),
     outfit: z.string(),
     accent: z.string(),
-  }),
+    style: z.enum(["cartoon", "photo"]).optional(),
+    photo: z
+      .object({
+        imageUrl: z.string().regex(/^(https?:\/\/|\/uploads\/)/),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        landmarks: z.array(z.number()).length(478 * 3),
+        consent: z.literal(true, { errorMap: () => ({ message: "ต้องยืนยันสิทธิ์ในการใช้รูปและความยินยอมของบุคคลในรูป" }) }),
+      })
+      .optional(),
+  }).refine((l) => l.style !== "photo" || !!l.photo, { message: "โหมดรูปถ่ายต้องอัปโหลดรูปใบหน้าก่อน" }),
 });
 
 const scriptStep = z.discriminatedUnion("kind", [

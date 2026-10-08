@@ -2,6 +2,7 @@ import type { HostCharacter } from "@tlai/shared";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useData } from "../lib/useData";
+import { PhotoHostEditor } from "./PhotoHostEditor";
 
 export function CharactersPage() {
   const [chars, reload] = useData<HostCharacter[]>("/characters", []);
@@ -93,6 +94,13 @@ export function CharactersPage() {
           <button onClick={test}>ทดลองเสียง</button>
         </div>
         <h2>หน้าตา</h2>
+        <div className="chips">
+          <button className={sel.look.style !== "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "cartoon" } })}>ตัวการ์ตูน</button>
+          <button className={sel.look.style === "photo" ? "on" : ""} onClick={() => set({ look: { ...sel.look, style: "photo" } })}>เหมือนคนจริง (จากรูปถ่าย)</button>
+        </div>
+        {sel.look.style === "photo" ? (
+          <PhotoHostEditor character={sel} onChange={(look) => set({ look })} />
+        ) : (
         <div className="row">
           {(["skin", "hair", "eyes", "outfit", "accent"] as const).map((k) => (
             <label key={k}>
@@ -101,6 +109,7 @@ export function CharactersPage() {
             </label>
           ))}
         </div>
+        )}
         <div className="row">
           <button className="primary" onClick={save}>บันทึก</button>
           {err && <span className="msg">{err}</span>}

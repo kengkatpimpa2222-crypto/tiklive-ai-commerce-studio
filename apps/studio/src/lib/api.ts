@@ -5,8 +5,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   if (res.status === 204) return undefined as T;
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw Object.assign(new Error(data.error ?? `HTTP ${res.status}`), { data });
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
+  // Fastify's own 400s carry the useful text in `message`; ours put it in `error`.
+  if (!res.ok) throw Object.assign(new Error(data.message ?? data.error ?? `HTTP ${res.status}`), { data });
   return data;
 }
 

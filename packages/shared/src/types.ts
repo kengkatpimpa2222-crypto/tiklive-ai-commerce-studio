@@ -106,7 +106,24 @@ export interface HostCharacter {
     eyes: string;
     outfit: string;
     accent: string;
+    /** "cartoon" draws the built-in SVG character; "photo" animates an uploaded portrait. */
+    style?: "cartoon" | "photo";
+    photo?: PhotoLook;
   };
+}
+
+/**
+ * A realistic host made from one portrait photo. Face landmarks are detected once on
+ * upload (on the user's own PC) and the stage animates the photo by warping a mesh.
+ */
+export interface PhotoLook {
+  imageUrl: string;
+  width: number;
+  height: number;
+  /** 478 MediaPipe face landmarks, flattened [x, y, z, ...]; x/y in 0..1 of the image, z relative depth. */
+  landmarks: number[];
+  /** The uploader confirmed they own the photo or the person in it agreed to this use. */
+  consent: true;
 }
 
 export interface SpeechSegment {
