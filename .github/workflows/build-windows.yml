@@ -27,7 +27,9 @@ jobs:
   windows:
     needs: test
     runs-on: windows-latest
-    # A "v*" tag publishes a GitHub Release; installed apps update themselves from it.
+    # Every push to main (or a v* tag) publishes a GitHub Release named after the version in
+    # apps/desktop/package.json; installed apps update themselves from it. A version that is
+    # already released is skipped, so bump the version to ship an update.
     permissions:
       contents: write
     steps:
@@ -39,7 +41,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm --filter @tlai/desktop exec electron-builder --win nsis --x64 --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+      - run: pnpm --filter @tlai/desktop exec electron-builder --win nsis --x64 --publish ${{ github.event_name == 'push' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
