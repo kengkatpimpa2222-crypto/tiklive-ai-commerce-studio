@@ -172,3 +172,17 @@ describe("coupon spotlight", () => {
     expect(sent.some((c) => c.type === "coupon" && c.promotion.code === "LIVE20")).toBe(true);
   });
 });
+
+describe("real orders", () => {
+  it("counts the order, shows it and thanks once for orders close together", async () => {
+    const s = makeSession();
+    director.start(s);
+    expect(director.orderPlaced("prod_serum", 2).ok).toBe(true);
+    director.orderPlaced("prod_serum");
+    await vi.advanceTimersByTimeAsync(20_000);
+    const thanks = spoken().filter((x) => x.text.includes("ขอบคุณ") && x.text.includes("เซรั่ม"));
+    expect(thanks.length).toBe(1);
+    expect(sent.filter((c) => c.type === "order").length).toBe(2);
+    expect(store.get("sessions", s.id)!.manualStats).toMatchObject({ orders: 3, gmv: 897 });
+  });
+});

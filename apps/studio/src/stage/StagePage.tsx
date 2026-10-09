@@ -25,6 +25,7 @@ export function StagePage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [sale, setSale] = useState<FlashSale | null>(null);
+  const [order, setOrder] = useState<{ name: string; until: number } | null>(null);
   const [coupon, setCoupon] = useState<{ promo: Promotion; until: number } | null>(null);
   const [caption, setCaption] = useState("");
   const [question, setQuestion] = useState<ViewerQuestion | null>(null);
@@ -124,6 +125,9 @@ export function StagePage() {
           break;
         case "flash_sale":
           setSale(cmd.sale);
+          break;
+        case "order":
+          setOrder({ name: cmd.productName, until: Date.now() + 5000 });
           break;
         case "coupon":
           setCoupon({ promo: cmd.promotion, until: Date.now() + 15_000 });
@@ -225,6 +229,8 @@ export function StagePage() {
             {endsIn > 0 && endsIn < 48 * 3600_000 && <span className="countdown">หมดเขตใน {fmtLeft(endsIn)}</span>}
           </div>
         )}
+
+        {order && order.until > now && <div className="order-toast">🛒 มีคำสั่งซื้อ {order.name}</div>}
 
         {coupon && coupon.until > now && (
           <div className="coupon-spot">

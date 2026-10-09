@@ -715,6 +715,12 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
         break;
       }
       case "flash-sale-end": director.endFlashSale(true); break;
+      case "order": {
+        const o = parse(z.object({ productId: z.string(), qty: z.number().int().min(1).max(99).default(1) }), body);
+        const r = director.orderPlaced(o.productId, o.qty);
+        if (!r.ok) return reply.code(422).send({ error: r.reason });
+        break;
+      }
       case "qa-mode": director.qaMode = parse(z.object({ mode: z.enum(["auto", "review"]) }), body).mode; break;
       default: return reply.code(404).send({ error: "unknown action" });
     }

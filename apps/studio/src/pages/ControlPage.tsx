@@ -391,6 +391,11 @@ export function ControlPage() {
                 </div>
                 <button onClick={() => director("product", { productId: p.id })}>แสดง</button>
                 <button onClick={() => director("pitch", { productId: p.id })}>แนะนำ</button>
+                {live && (
+                  <button title="กดเมื่อเห็นออเดอร์จริงใน Seller Center ตัวละครจะขอบคุณโดยไม่บอกชื่อ" onClick={() => director("order", { productId: p.id })}>
+                    🛒 มีคนสั่ง
+                  </button>
+                )}
               </div>
             ))}
         </div>

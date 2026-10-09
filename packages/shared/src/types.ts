@@ -251,7 +251,8 @@ export type LiveEventType =
   | "answer"
   | "blocked_text"
   | "disclosure"
-  | "manual_stat";
+  | "manual_stat"
+  | "order";
 
 export interface LiveEvent {
   at: string;
@@ -314,7 +315,9 @@ export type StageCommand =
   | { type: "gesture"; gesture: Gesture }
   | { type: "flash_sale"; sale: FlashSale | null }
   /** A discount code shown large for a few seconds while the host reads it. */
-  | { type: "coupon"; promotion: Promotion };
+  | { type: "coupon"; promotion: Promotion }
+  /** A real order the operator saw in Seller Center; shown briefly, never with the buyer's name. */
+  | { type: "order"; productName: string };
 
 /** Messages sent from the stage back to the API. */
 export type StageReport =

@@ -97,6 +97,7 @@ export class LiveDirector {
   private lastBlocked: string | null = null;
   private flash: FlashSale | null = null;
   private flashTimers: NodeJS.Timeout[] = [];
+  private lastThanksAt = -Infinity;
   qaMode: QaMode = "auto";
   stageConnected = false;
   private readonly now: () => number;
@@ -226,6 +227,32 @@ export class LiveDirector {
     this.flashTimers.push(setTimeout(() => this.endFlashSale(true), minutes * 60_000));
     this.emit();
     this.pump();
+    return { ok: true };
+  }
+
+  /**
+   * The operator saw a real order come in (Seller Center): count it, show a short note on screen and
+   * have the host thank the buyer without a name. Several orders close together get one thank-you.
+   */
+  orderPlaced(productId: string, qty = 1): { ok: boolean; reason?: string } {
+    const s = this.session();
+    if (!s || this.status === "idle") return { ok: false, reason: "ยังไม่ได้เริ่มไลฟ์" };
+    const p = this.brainCtx().products.find((x) => x.id === productId) ?? this.d.store.get("products", productId);
+    if (!p) return { ok: false, reason: "ไม่พบสินค้า" };
+    const amount = p.price * qty;
+    this.d.store.update("sessions", s.id, { manualStats: { ...s.manualStats, orders: (s.manualStats.orders ?? 0) + qty, gmv: (s.manualStats.gmv ?? 0) + amount } });
+    this.log({ type: "order", productId, data: { qty, amount } });
+    this.d.send({ type: "order", productName: p.name });
+    if (this.now() - this.lastThanksAt >= 30_000) {
+      this.lastThanksAt = this.now();
+      const c = this.character();
+      const e = c.politeParticle;
+      const lines = [`ขอบคุณที่สั่ง${p.name}เข้ามา${e}`, `ขอบคุณสำหรับออเดอร์${p.name}${e} ร้านจะรีบแพ็กส่งให้${e}`, `ขอบคุณที่อุดหนุน${p.name}${e}`];
+      const text = lines.find((t) => !this.saidWithin(t, 10 * 60_000)) ?? lines[0]!;
+      this.enqueue(this.seg(text, "system", { productId, baseEmotion: "happy" }), false);
+      this.pump();
+    }
+    this.emit();
     return { ok: true };
   }
 
@@ -610,6 +637,7 @@ export class LiveDirector {
     for (const t of this.flashTimers) clearTimeout(t);
     this.flashTimers = [];
     this.flash = null;
+    this.lastThanksAt = -Infinity;
     this.queue = [];
     this.speaking = null;
     this.busy = false;
