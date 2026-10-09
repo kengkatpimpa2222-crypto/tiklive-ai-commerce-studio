@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useData } from "../lib/useData";
 import { HostGallery } from "./HostGallery";
+import { VoicePicker } from "./VoicePicker";
 import { PhotoHostEditor } from "./PhotoHostEditor";
 
 export function CharactersPage() {
@@ -65,8 +66,18 @@ export function CharactersPage() {
       setErr(`⚠ ${(e as Error).message}`);
     }
   };
-  const test = () => {
-    const u = new SpeechSynthesisUtterance(`สวัสดี${sel.politeParticle} ${sel.name}เป็นตัวละคร AI ที่จะช่วยแนะนำสินค้า${sel.politeParticle}`);
+  const test = async () => {
+    const line = `สวัสดี${sel.politeParticle} ${sel.name}เป็นตัวละคร AI ที่จะช่วยแนะนำสินค้า${sel.politeParticle}`;
+    if (sel.voice.provider !== "browser") {
+      try {
+        const r = await api<{ audio: string | null; mime?: string }>("/tts", { body: { text: line, voice: sel.voice } });
+        if (r.audio) void new Audio(`data:${r.mime};base64,${r.audio}`).play();
+      } catch (e) {
+        setErr(`⚠ ${(e as Error).message}`);
+      }
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(line);
     const v = voices.find((x) => x.name === sel.voice.voice) ?? voices.find((x) => x.lang.startsWith("th"));
     if (v) u.voice = v;
     u.lang = sel.voice.lang;
@@ -130,12 +141,15 @@ export function CharactersPage() {
         <h2>เสียง</h2>
         <label>
           ผู้ให้บริการเสียง
-          <select value={sel.voice.provider} onChange={(e) => set({ voice: { ...sel.voice, provider: e.target.value as "browser" | "openai" } })}>
-            <option value="browser">เสียงในเครื่อง Windows (ฟรี ออฟไลน์)</option>
+          <select value={sel.voice.provider} onChange={(e) => set({ voice: { ...sel.voice, provider: e.target.value as HostCharacter["voice"]["provider"] } })}>
+            <option value="browser">เสียงในเครื่อง Windows (ฟรี ออฟไลน์ ภาษาไทยมีแต่เสียงผู้ชาย)</option>
+            <option value="azure">เสียง AI ของ Microsoft (มีเสียงผู้หญิงวัยรุ่น ใช้ Azure key ฟรีเดือนละ 5 แสนตัวอักษร)</option>
             <option value="openai">OpenAI-compatible TTS (ตั้งค่า API key ใน .env)</option>
           </select>
         </label>
-        {sel.voice.provider === "browser" ? (
+        {sel.voice.provider === "azure" ? (
+          <VoicePicker voice={sel.voice} onChange={(voice) => set({ voice })} />
+        ) : sel.voice.provider === "browser" ? (
           <label>
             เสียง
             <select value={sel.voice.voice} onChange={(e) => set({ voice: { ...sel.voice, voice: e.target.value } })}>

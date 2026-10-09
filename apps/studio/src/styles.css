@@ -266,3 +266,4 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .team-questions h3 { margin: 0; }
 .team-q { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 a.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; margin: 0; }
+.voice-picker { display: flex; flex-direction: column; gap: 6px; }

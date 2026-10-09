@@ -26,7 +26,7 @@ import {
   type StageReport,
 } from "@tlai/shared";
 import { ManualTikTokProvider, OfficialTikTokProvider, type TikTokProvider } from "@tlai/tiktok";
-import { BrowserTtsPlan, OpenAICompatibleTts, type TtsProvider } from "@tlai/tts";
+import { AZURE_THAI_VOICES, AzureTts, BrowserTtsPlan, OpenAICompatibleTts, type TtsProvider } from "@tlai/tts";
 import Fastify, { type FastifyInstance } from "fastify";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -45,6 +45,8 @@ export interface ServerOptions {
   llm?: LlmProvider;
   /** Test hook for AI provider HTTP calls. */
   llmFetch?: typeof fetch;
+  /** Test hook for Azure Speech HTTP calls. */
+  speechFetch?: typeof fetch;
   /** Test hook for the avatar service (D-ID) HTTP calls. */
   avatarFetch?: typeof fetch;
   tts?: TtsProvider;
@@ -428,6 +430,25 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     return { text: out.text, via: out.via, ms: Date.now() - started };
   });
 
+  // ---- Azure AI Speech: neural Thai voices with the seller's own key ----
+  const speechView = () => {
+    const k = store.db.speech?.key ?? "";
+    return { provider: "azure", hasKey: k.length > 0, region: store.db.speech?.region ?? "", keyHint: k.length > 8 ? `${k.slice(0, 4)}…${k.slice(-4)}` : k ? "••••" : "", voices: AZURE_THAI_VOICES };
+  };
+  app.get("/api/speech-service", async () => speechView());
+  app.put("/api/speech-service", async (req) => {
+    const cfg = parse(z.object({ key: z.string().trim().min(10).max(200), region: z.string().trim().regex(/^[a-z0-9]+$/, "region เช่น southeastasia") }), req.body);
+    await new AzureTts(cfg, opts.speechFetch, process.env.TLAI_AZURE_TTS_BASE).check().catch((e: Error) => {
+      throw Object.assign(e, { statusCode: 400 });
+    });
+    store.setSpeech(cfg);
+    return speechView();
+  });
+  app.delete("/api/speech-service", async () => {
+    store.setSpeech(undefined);
+    return speechView();
+  });
+
   // ---- realistic streaming avatar (D-ID) ----
   const did = () => (store.db.avatarService?.apiKey ? new DidClient(store.db.avatarService.apiKey, opts.avatarFetch) : null);
   const needDid = () => {
@@ -533,10 +554,22 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   app.get("/api/policy", async () => ({ prohibited: PROHIBITED_CAPABILITIES, tiktokProvider: tiktok.id, tiktokCapabilities: tiktok.capabilities, unsupportedMessage: UNSUPPORTED_TIKTOK_MESSAGE }));
 
   // ---- TTS (remote provider audio for the stage) ----
+  const azure = () => (store.db.speech ? new AzureTts(store.db.speech, opts.speechFetch, process.env.TLAI_AZURE_TTS_BASE) : null);
   app.post("/api/tts", async (req, reply) => {
-    const { text, characterId } = parse(z.object({ text: z.string().min(1).max(600), characterId: z.string().optional() }), req.body);
+    const { text, characterId, voice } = parse(
+      z.object({ text: z.string().min(1).max(600), characterId: z.string().optional(), voice: characterInput.shape.voice.optional() }),
+      req.body,
+    );
     const c = (characterId && store.get("characters", characterId)) || store.mainCharacter()!;
-    const r = await tts.synthesize(text, c.voice);
+    // `voice` lets the character editor try a voice before saving it.
+    const v = voice ?? c.voice;
+    let provider: TtsProvider = tts;
+    if (v.provider === "azure") {
+      const a = azure();
+      if (!a) return reply.code(400).send({ error: "ยังไม่ได้ใส่ Azure Speech key" });
+      provider = a;
+    }
+    const r = await provider.synthesize(text, v);
     if (!r.audio) return { durationMs: r.durationMs, visemes: r.visemes, audio: null };
     return { durationMs: r.durationMs, visemes: r.visemes, mime: r.mime, audio: Buffer.from(r.audio).toString("base64") };
   });

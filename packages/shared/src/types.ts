@@ -120,7 +120,8 @@ export interface Scene {
 }
 
 export interface VoiceConfig {
-  provider: "browser" | "openai";
+  /** browser: Windows voices (free, offline). azure: Microsoft neural voices with the seller's own Azure Speech key. */
+  provider: "browser" | "openai" | "azure";
   /** Browser voice name or remote voice id. */
   voice: string;
   lang: string;

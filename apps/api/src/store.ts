@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "
 import { dirname } from "node:path";
 import type { AiConfig } from "@tlai/ai";
 import type { AvatarServiceConfig } from "./avatarService.js";
+import type { AzureSpeechConfig } from "@tlai/tts";
 import type { FaqEntry, HostCharacter, LiveSchedule, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
 import { defaultSettings, seedCharacters, seedFaqs, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
 
@@ -22,9 +23,11 @@ export interface Db {
   mainCharacterId?: string;
   /** Realistic streaming avatar service. Holds the API key, so it is never sent to the stage. */
   avatarService?: AvatarServiceConfig;
+  /** Azure AI Speech for neural Thai voices. Holds the key, so it is never sent to the stage. */
+  speech?: AzureSpeechConfig;
 }
 
-export type Collection = Exclude<keyof Db, "settings" | "ai" | "mainCharacterId" | "avatarService">;
+export type Collection = Exclude<keyof Db, "settings" | "ai" | "mainCharacterId" | "avatarService" | "speech">;
 type Lists = Pick<Db, Collection>;
 
 const seed = (): Db => ({
@@ -89,8 +92,8 @@ export class Store {
   }
 
   /** Data safe to move to another PC: everything except API keys. */
-  exportable(): Omit<Db, "ai" | "avatarService"> {
-    const { ai: _ai, avatarService: _svc, ...rest } = this.db;
+  exportable(): Omit<Db, "ai" | "avatarService" | "speech"> {
+    const { ai: _ai, avatarService: _svc, speech: _sp, ...rest } = this.db;
     return structuredClone(rest);
   }
 
@@ -109,6 +112,11 @@ export class Store {
 
   setAi(cfg: AiConfig): void {
     this.db.ai = cfg;
+    this.save();
+  }
+
+  setSpeech(cfg: AzureSpeechConfig | undefined): void {
+    this.db.speech = cfg;
     this.save();
   }
 

@@ -34,7 +34,7 @@ export class SpeechEngine {
     this.stop();
     this.cancelled = false;
     if (this.muted) return this.speakSilent(seg, c, cb);
-    if (c.voice.provider === "openai") {
+    if (c.voice.provider !== "browser") {
       try {
         return await this.speakRemote(seg, c, cb);
       } catch (e) {

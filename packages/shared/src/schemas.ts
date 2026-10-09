@@ -44,7 +44,7 @@ export const characterInput = z.object({
   politeParticle: z.enum(["ค่ะ", "ครับ"]).default("ค่ะ"),
   energy: z.enum(["calm", "normal", "high"]).optional(),
   voice: z.object({
-    provider: z.enum(["browser", "openai"]).default("browser"),
+    provider: z.enum(["browser", "openai", "azure"]).default("browser"),
     voice: z.string().default(""),
     lang: z.string().default("th-TH"),
     rate: z.number().min(0.5).max(2).default(1),

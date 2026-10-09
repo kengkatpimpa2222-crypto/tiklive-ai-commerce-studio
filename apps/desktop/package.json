@@ -1,7 +1,7 @@
 {
   "name": "@tlai/desktop",
   "productName": "TikLive AI Commerce Studio",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "private": true,
   "description": "AI virtual live seller studio for TikTok LIVE (official channels only).",
   "main": "out/main.cjs",
