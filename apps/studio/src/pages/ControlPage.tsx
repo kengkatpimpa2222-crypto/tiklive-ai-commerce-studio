@@ -129,6 +129,7 @@ export function ControlPage() {
     });
 
   const pending = questions.filter((q) => q.status === "pending");
+  const forTeam = questions.filter((q) => q.needsTeam);
 
   // Clock for the live timer and disclosure countdown.
   const [now, setNow] = useState(Date.now());
@@ -455,6 +456,9 @@ export function ControlPage() {
           ))}
           {pending.length === 0 && <li className="empty">ยังไม่มีคำถามที่รอตอบ</li>}
         </ul>
+        {forTeam.length > 0 && (
+          <TeamQuestions questions={forTeam} products={products} onDone={reloadQuestions} />
+        )}
         <p className="note">TikTok ยังไม่มี API ทางการให้แอปอ่านคอมเมนต์ LIVE ระบบจึงไม่ดึงคอมเมนต์เอง (ไม่ scrape) ผู้ควบคุมแค่คัดลอกคอมเมนต์ แล้ว AI ตอบให้อัตโนมัติ</p>
       </section>
     </div>
@@ -465,4 +469,48 @@ function fmtClock(ms: number): string {
   const s = Math.floor(ms / 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
+/** Questions the host passed to the team: answer once, the host says it, and the answer is kept for next time. */
+function TeamQuestions({ questions, products, onDone }: { questions: ViewerQuestion[]; products: Product[]; onDone: () => void }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [remember, setRemember] = useState(true);
+  const [err, setErr] = useState("");
+  const send = async (q: ViewerQuestion) => {
+    try {
+      await api(`/questions/${q.id}/teach`, { body: { answer: answers[q.id] ?? "", remember } });
+      setErr("");
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <div className="team-questions">
+      <h3>AI ตอบไม่ได้ รอทีมงานตอบ ({questions.length})</h3>
+      <label className="inline">
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> จำคำตอบไว้ในสินค้า ครั้งหน้า AI ตอบเองได้
+      </label>
+      {questions.map((q) => {
+        const p = products.find((x) => x.id === q.productId);
+        return (
+          <div key={q.id} className="team-q">
+            <div>
+              {q.text}
+              {p && <small className="muted"> · {p.name}</small>}
+            </div>
+            <textarea placeholder="คำตอบของร้าน (ข้อมูลจริงเท่านั้น)" value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
+            <div className="row">
+              <button className="primary" disabled={!answers[q.id]?.trim()} onClick={() => send(q)}>
+                ให้ตัวละครตอบ
+              </button>
+              <button onClick={() => api(`/questions/${q.id}/team-done`, { body: {} }).then(onDone, (e: Error) => setErr(e.message))}>ตอบในแชตเองแล้ว</button>
+            </div>
+          </div>
+        );
+      })}
+      {questions.some((q) => !q.productId) && <small className="muted">คำถามที่ไม่ได้ระบุสินค้าจะตอบในไลฟ์ได้ แต่จะไม่ถูกจำไว้</small>}
+      {err && <div className="msg">⚠ {err}</div>}
+    </div>
+  );
 }

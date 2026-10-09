@@ -742,6 +742,14 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const r = await director.answerQuestion(req.params.id, text);
     return r.ok ? director.state() : reply.code(422).send({ error: r.reason });
   });
+  app.post<{ Params: { id: string } }>("/api/questions/:id/teach", async (req, reply) => {
+    const { answer, remember } = parse(z.object({ answer: z.string().trim().min(1).max(500), remember: z.boolean().default(true) }), req.body);
+    const r = director.teachAnswer(req.params.id, answer, remember);
+    return r.ok ? { ok: true } : reply.code(422).send({ error: r.reason });
+  });
+  app.post<{ Params: { id: string } }>("/api/questions/:id/team-done", async (req, reply) =>
+    store.update("questions", req.params.id, { needsTeam: false }) ? { ok: true } : reply.code(404).send({ error: "not found" }),
+  );
   app.post<{ Params: { id: string } }>("/api/questions/:id/skip", async (req) => {
     director.skipQuestion(req.params.id);
     return { ok: true };

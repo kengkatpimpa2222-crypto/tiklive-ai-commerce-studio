@@ -236,6 +236,10 @@ export interface ViewerQuestion {
   receivedAt: string;
   status: "pending" | "answered" | "skipped" | "blocked";
   answer?: string;
+  /** The host could not answer from the shop's data and told the viewer the team will reply. */
+  needsTeam?: boolean;
+  /** The product the question was about, when known. */
+  productId?: string;
 }
 
 export type LiveStatus = "DRAFT" | "READY" | "LIVE" | "ENDED";

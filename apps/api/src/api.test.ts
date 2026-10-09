@@ -427,3 +427,27 @@ describe("promotion codes", () => {
     expect((await ctx.app.inject({ method: "POST", url: "/api/promotions", payload: { title: "ลด", detail: "x", code: "<b>" } })).statusCode).toBe(400);
   });
 });
+
+describe("questions the team answers", () => {
+  it("flags what the host could not answer and remembers the team's answer for next time", { timeout: 30_000 }, async () => {
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "t", characterId: "char_mint", productIds: ["prod_serum"] } }));
+    await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` });
+    await ctx.app.inject({ method: "POST", url: "/api/director/product", payload: { productId: "prod_serum" } });
+    const q = json(await ctx.app.inject({ method: "POST", url: "/api/questions", payload: { text: "เซรั่มทาตอนตั้งครรภ์ได้ไหม" } }));
+    const answered = await ctx.app.inject({ method: "POST", url: `/api/questions/${q.id}/answer`, payload: {} });
+    expect(answered.statusCode).toBe(200);
+    const flagged = json(await ctx.app.inject({ method: "GET", url: "/api/questions" })).find((x: { id: string }) => x.id === q.id);
+    expect(flagged).toMatchObject({ needsTeam: true, productId: "prod_serum" });
+
+    const bad = await ctx.app.inject({ method: "POST", url: `/api/questions/${q.id}/teach`, payload: { answer: "รักษาฝ้าหายขาด 100%" } });
+    expect(bad.statusCode).toBe(422);
+    const ok = await ctx.app.inject({ method: "POST", url: `/api/questions/${q.id}/teach`, payload: { answer: "ควรปรึกษาแพทย์ก่อนใช้ระหว่างตั้งครรภ์ค่ะ" } });
+    expect(ok.statusCode).toBe(200);
+    const product = json(await ctx.app.inject({ method: "GET", url: "/api/products/prod_serum" }));
+    expect(product.qa.some((x: { answer: string }) => x.answer.includes("ปรึกษาแพทย์"))).toBe(true);
+
+    const again = json(await ctx.app.inject({ method: "POST", url: "/api/questions", payload: { text: "ทาตอนตั้งครรภ์ได้ไหมคะ" } }));
+    const draft = json(await ctx.app.inject({ method: "POST", url: `/api/questions/${again.id}/draft`, payload: {} }));
+    expect(draft.text).toContain("ปรึกษาแพทย์");
+  });
+});

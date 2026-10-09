@@ -59,6 +59,9 @@ export interface DirectorDeps {
   rotateEveryTurns?: number;
 }
 
+/** Answers where the host hands the question to the shop's team (it had no facts to answer with). */
+const DEFERS_TO_TEAM = /ทีมงาน(?:ของร้าน)?(?:ตรวจสอบ|ตอบ)|ขอให้ทีมงาน|ให้ทีมงาน/;
+
 const ABUSE = /(ควย|เหี้ย|สัส|fuck|shit)/i;
 const LINK = /(https?:\/\/|www\.|\.com\b|line\s*id|@\w{3,})/i;
 
@@ -339,10 +342,41 @@ export class LiveDirector {
     const text = editedText?.trim() || (await this.draftAnswer(questionId))!;
     const check = this.check(text);
     if (!check.ok) return check;
-    this.d.store.update("questions", q.id, { status: "answered", answer: text });
+    const needsTeam = !editedText?.trim() && DEFERS_TO_TEAM.test(text);
+    const productId = this.d.brain.findProduct(q.text, this.brainCtx())?.id;
+    this.d.store.update("questions", q.id, { status: "answered", answer: text, ...(needsTeam ? { needsTeam, productId } : {}) });
     this.d.send({ type: "question", question: { ...q, status: "answered", answer: text } });
     this.log({ type: "answer", text });
     this.enqueue(this.seg(text, "qa", { productId: this.currentProductId ?? undefined }), true);
+    return { ok: true };
+  }
+
+  /**
+   * The team answers a question the host could not. The host says it on air, and when `remember`
+   * is set the answer is kept as the product's own Q&A so the host can answer it next time.
+   */
+  teachAnswer(questionId: string, answer: string, remember: boolean): { ok: boolean; reason?: string } {
+    const q = this.d.store.get("questions", questionId);
+    if (!q) return { ok: false, reason: "ไม่พบคำถาม" };
+    const text = answer.trim();
+    const product = q.productId ? this.d.store.get("products", q.productId) : undefined;
+    const check = this.check(text, product?.id);
+    if (!check.ok) return check;
+    if (remember && product) {
+      const qa = (product.qa ?? []).filter((x) => x.question !== q.text);
+      this.d.store.update("products", product.id, { qa: [...qa, { question: q.text.slice(0, 200), answer: text.slice(0, 500) }].slice(-30) });
+    }
+    this.d.store.update("questions", q.id, { status: "answered", answer: text, needsTeam: false });
+    if (this.status !== "idle") {
+      const c = this.character();
+      // The question itself is on screen in the bubble; the host only says the answer.
+      const spoken = `ทีมงานตอบคำถามที่ถามมาแล้ว${c.politeParticle} ${text}`;
+      this.d.send({ type: "question", question: { ...q, status: "answered", answer: text } });
+      this.log({ type: "answer", text });
+      this.enqueue(this.seg(spoken, "qa", { productId: product?.id }), true);
+      this.pump();
+    }
+    this.emit();
     return { ok: true };
   }
 

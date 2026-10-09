@@ -262,3 +262,6 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .cs-detail { font-size: 3.6cqw; }
 .chip-code { margin-left: 6px; padding: 1px 6px; border: 1px dashed #ff6a88; border-radius: 6px; font-size: 12px; color: #ff9ab0; }
 .order-toast { position: absolute; left: 3cqw; top: 30cqh; padding: 1.4cqw 3cqw; border-radius: 6cqw; background: rgba(20, 160, 90, 0.92); color: #fff; font-weight: 700; font-size: 3.6cqw; }
+.team-questions { margin-top: 12px; padding: 10px; border: 1px solid #a57a2a; border-radius: 10px; background: #241c10; display: flex; flex-direction: column; gap: 8px; }
+.team-questions h3 { margin: 0; }
+.team-q { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
