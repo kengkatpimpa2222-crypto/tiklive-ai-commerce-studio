@@ -1,5 +1,5 @@
 import { AvatarController, type AvatarFrame } from "@tlai/avatar";
-import { formatBaht, type HostCharacter, type Product, type Promotion, type Scene, type StageCommand, type StudioSettings, type ViewerQuestion } from "@tlai/shared";
+import { formatBaht, type FlashSale, type HostCharacter, type Product, type Promotion, type Scene, type StageCommand, type StudioSettings, type ViewerQuestion } from "@tlai/shared";
 import { useEffect, useRef, useState } from "react";
 import { connect } from "../lib/api";
 import { Avatar } from "./Avatar";
@@ -24,6 +24,7 @@ export function StagePage() {
   const [scene, setScene] = useState<Scene | null>(null);
   const [product, setProduct] = useState<Product | null>(null);
   const [promos, setPromos] = useState<Promotion[]>([]);
+  const [sale, setSale] = useState<FlashSale | null>(null);
   const [caption, setCaption] = useState("");
   const [question, setQuestion] = useState<ViewerQuestion | null>(null);
   const [frame, setFrame] = useState<AvatarFrame | null>(null);
@@ -120,6 +121,9 @@ export function StagePage() {
         case "question":
           setQuestion(cmd.question);
           break;
+        case "flash_sale":
+          setSale(cmd.sale);
+          break;
         case "emotion":
           c.setEmotion(cmd.emotion, 4000);
           break;
@@ -174,6 +178,7 @@ export function StagePage() {
   // Prefer a product-specific promotion over shop-wide ones while a product is on screen.
   const promo = promos.find((p) => product && p.productIds.includes(product.id)) ?? promos[0];
   const endsIn = promo?.endsAt ? Date.parse(promo.endsAt) - now : NaN;
+  const onSale = !!sale && !!product && sale.productId === product.id && Date.parse(sale.endsAt) > now;
   const showCaptions = (scene?.showCaptions ?? true) && (settings?.showCaptions ?? true);
   const avatarStyle = settings
     ? { transform: `translate(${settings.avatarX * 100}%, ${settings.avatarY * 100}%) scale(${settings.avatarScale})` }
@@ -223,14 +228,30 @@ export function StagePage() {
           </div>
         )}
 
+        {sale && Date.parse(sale.endsAt) > now && (
+          <div className="flash-sale">
+            <span className="fs-label">ราคาพิเศษ {formatBaht(sale.price)}</span>
+            <span className="fs-time">{countdown(Date.parse(sale.endsAt) - now)}</span>
+          </div>
+        )}
+
         {(scene?.showProductCard ?? true) && product && (
-          <div className="product-card">
+          <div className={`product-card${onSale ? " on-sale" : ""}`}>
             {product.imageUrl ? <img src={product.imageUrl} alt="" /> : <div className="ph">{product.name.slice(0, 2)}</div>}
             <div className="pc-body">
               <div className="pc-name">{product.name}</div>
               <div className="pc-price">
-                {formatBaht(product.price)}
-                {product.compareAtPrice && <s>{formatBaht(product.compareAtPrice)}</s>}
+                {onSale ? (
+                  <>
+                    {formatBaht(sale.price)}
+                    <s>{formatBaht(product.price)}</s>
+                  </>
+                ) : (
+                  <>
+                    {formatBaht(product.price)}
+                    {product.compareAtPrice && <s>{formatBaht(product.compareAtPrice)}</s>}
+                  </>
+                )}
               </div>
               {product.stock === 0 ? (
                 <div className="pc-oos">สินค้าหมดชั่วคราว</div>
@@ -286,4 +307,10 @@ function SpeakingBadge({ frame }: { frame: AvatarFrame | null }) {
       </span>
     </div>
   );
+}
+
+/** "9:05" style time left. */
+function countdown(ms: number): string {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 }

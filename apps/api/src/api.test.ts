@@ -403,3 +403,17 @@ describe("scheduled LIVE", () => {
     }
   });
 });
+
+describe("flash sale API", () => {
+  it("needs the seller to confirm the price is set in TikTok Shop", async () => {
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "t", characterId: "char_mint", productIds: ["prod_serum"] } }));
+    expect((await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` })).statusCode).toBe(200);
+    const body = { productId: "prod_serum", price: 249, minutes: 10 };
+    const no = await ctx.app.inject({ method: "POST", url: "/api/director/flash-sale", payload: body });
+    expect(no.statusCode).toBe(400);
+    const ok = await ctx.app.inject({ method: "POST", url: "/api/director/flash-sale", payload: { ...body, confirmedInShop: true } });
+    expect(json(ok).flashSale).toMatchObject({ productId: "prod_serum", price: 249, regularPrice: 299 });
+    const end = await ctx.app.inject({ method: "POST", url: "/api/director/flash-sale-end", payload: {} });
+    expect(json(end).flashSale).toBeNull();
+  });
+});

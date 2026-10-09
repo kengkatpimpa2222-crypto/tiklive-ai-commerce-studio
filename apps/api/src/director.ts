@@ -9,8 +9,10 @@ import {
   REDISCLOSURE_INTERVAL_MS,
 } from "@tlai/compliance";
 import {
+  formatBaht,
   newId,
   type Emotion,
+  type FlashSale,
   type Gesture,
   type LiveEvent,
   type LiveScript,
@@ -40,6 +42,7 @@ export interface DirectorState {
   /** When the next scheduled AI disclosure is due (epoch ms), while running. */
   nextDisclosureAt: number | null;
   pendingQuestions: number;
+  flashSale: FlashSale | null;
 }
 
 export interface DirectorDeps {
@@ -92,6 +95,8 @@ export class LiveDirector {
   private currentProductId: string | null = null;
   private sceneId: string | null = null;
   private lastBlocked: string | null = null;
+  private flash: FlashSale | null = null;
+  private flashTimers: NodeJS.Timeout[] = [];
   qaMode: QaMode = "auto";
   stageConnected = false;
   private readonly now: () => number;
@@ -120,6 +125,7 @@ export class LiveDirector {
   }
 
   stop(): void {
+    if (this.flash) this.d.send({ type: "flash_sale", sale: null });
     this.clearTimers();
     if (this.speaking) this.d.send({ type: "stop_speaking" });
     this.reset();
@@ -182,11 +188,71 @@ export class LiveDirector {
     this.emit();
   }
 
+  /**
+   * Starts a short sale at a price the seller has already set in TikTok Shop: the product goes on
+   * screen with a countdown, the host announces it, reminds once near the end and says when it is over.
+   */
+  startFlashSale(productId: string, price: number, minutes: number): { ok: boolean; reason?: string } {
+    if (this.status === "idle") return { ok: false, reason: "ยังไม่ได้เริ่มไลฟ์" };
+    const p = this.d.store.get("products", productId);
+    if (!p) return { ok: false, reason: "ไม่พบสินค้า" };
+    if (!(price > 0 && price < p.price)) return { ok: false, reason: `ราคาพิเศษต้องต่ำกว่าราคาปกติ ${formatBaht(p.price)}` };
+    if (p.stock <= 0) return { ok: false, reason: "สินค้านี้หมดสต็อก" };
+    this.endFlashSale(false);
+    const now = this.now();
+    this.flash = { productId, name: p.name, price, regularPrice: p.price, startedAt: new Date(now).toISOString(), endsAt: new Date(now + minutes * 60_000).toISOString() };
+    // The product card must be visible during the sale.
+    const scene = this.sceneId ? this.d.store.get("scenes", this.sceneId) : undefined;
+    const promoScene = this.d.store.list("scenes").find((x) => x.kind === "promo" && x.showProductCard);
+    if (scene && !scene.showProductCard && promoScene) this.setScene(promoScene.id);
+    this.showProduct(productId);
+    this.d.send({ type: "flash_sale", sale: this.flash });
+    this.log({ type: "promo_read", productId, text: `Flash sale ${minutes} นาที ${formatBaht(price)}` });
+    const c = this.character();
+    const q = c.politeParticle === "ค่ะ" ? "นะคะ" : "นะครับ";
+    this.enqueue(
+      this.seg(`ราคาพิเศษ ${minutes} นาทีจากนี้${c.politeParticle} ${p.name} ราคา ${formatBaht(price)} จากราคาปกติ ${formatBaht(p.price)} ดูเวลาที่เหลือบนจอได้เลย สั่งที่ตะกร้าในช่วงนี้ได้ราคานี้${q}`, "promo", { productId, baseEmotion: "excited" }),
+      true,
+    );
+    if (minutes >= 5) {
+      this.flashTimers.push(
+        setTimeout(() => {
+          if (this.flash?.productId !== productId) return;
+          this.enqueue(this.seg(`ราคาพิเศษ ${formatBaht(price)} ของ${p.name} เหลืออีก 2 นาที${c.politeParticle}`, "promo", { productId, baseEmotion: "excited" }), true);
+          this.pump();
+        }, (minutes - 2) * 60_000),
+      );
+    }
+    this.flashTimers.push(setTimeout(() => this.endFlashSale(true), minutes * 60_000));
+    this.emit();
+    this.pump();
+    return { ok: true };
+  }
+
+  /** Ends the sale early or on time; `announce` has the host say the normal price is back. */
+  endFlashSale(announce = true): void {
+    for (const t of this.flashTimers) clearTimeout(t);
+    this.flashTimers = [];
+    const sale = this.flash;
+    if (!sale) return;
+    this.flash = null;
+    // Lines about the sale price that have not been spoken yet are no longer true.
+    this.queue = this.queue.filter((x) => !x.text.includes(formatBaht(sale.price)));
+    this.d.send({ type: "flash_sale", sale: null });
+    if (announce && this.status !== "idle") {
+      const c = this.character();
+      this.enqueue(this.seg(`ราคาพิเศษของ${sale.name}หมดเวลาแล้ว${c.politeParticle} ตอนนี้กลับเป็นราคาปกติ ${formatBaht(sale.regularPrice)} ขอบคุณทุกคนที่สั่งเข้ามา${c.politeParticle}`, "promo", { productId: sale.productId }), true);
+      this.pump();
+    }
+    this.emit();
+  }
+
   async pitch(productId: string, priority = true, filler = false): Promise<void> {
     const p = this.d.store.get("products", productId);
     if (!p) return;
     if (this.currentProductId !== productId) this.showProduct(productId);
-    const out = await this.d.brain.pitch(p, this.brainCtx());
+    const ctx = this.brainCtx();
+    const out = await this.d.brain.pitch(ctx.products.find((x) => x.id === productId) ?? p, ctx);
     if (filler && this.questionsWaiting()) return;
     if (out.issues.length) this.log({ type: "blocked_text", productId, text: out.issues.map((i) => i.code).join(",") });
     this.enqueue(this.seg(out.text, "pitch", { productId }), priority);
@@ -275,6 +341,7 @@ export class LiveDirector {
       startedAt: this.session()?.startedAt ?? null,
       nextDisclosureAt: this.sessionId ? this.lastDisclosureAt + REDISCLOSURE_INTERVAL_MS : null,
       pendingQuestions: this.sessionId ? this.pendingQuestions().length : 0,
+      flashSale: this.flash,
     };
   }
 
@@ -327,13 +394,16 @@ export class LiveDirector {
         const turn = this.freeTalkTurn++;
         // Every few lines of free talk, move on to the next product so every item gets airtime.
         const every = this.d.rotateEveryTurns ?? 4;
-        const lineup = this.brainCtx().products.filter((p) => p.status === "ACTIVE");
+        const ctx = this.brainCtx();
+        const lineup = ctx.products.filter((p) => p.status === "ACTIVE");
         if (every > 0 && turn > 0 && turn % every === 0 && lineup.length > 1) {
+          // During a flash sale the sale product stays on screen and gets the pitches.
+          if (this.flash) return void this.runAsync(() => this.pitch(this.flash!.productId, false, true));
           const i = lineup.findIndex((p) => p.id === this.currentProductId);
           const next = lineup[(i + 1) % lineup.length]!;
           return void this.runAsync(() => this.pitch(next.id, false, true));
         }
-        const product = this.currentProductId ? this.d.store.get("products", this.currentProductId) : undefined;
+        const product = this.currentProductId ? ctx.products.find((p) => p.id === this.currentProductId) ?? this.d.store.get("products", this.currentProductId) : undefined;
         return void this.runAsync(async () => {
           const out = await this.d.brain.freeTalk(product, this.brainCtx());
           // Writing a line can take a few seconds with an AI provider; questions that came in
@@ -500,7 +570,10 @@ export class LiveDirector {
 
   private brainCtx(): BrainContext {
     const s = this.session();
-    const all = this.d.store.list("products");
+    const stored = this.d.store.list("products");
+    // During a flash sale the host talks about the sale price, with the normal price as the "was" price.
+    const sale = this.flash;
+    const all = sale ? stored.map((p) => (p.id === sale.productId ? { ...p, price: sale.price, compareAtPrice: p.compareAtPrice ?? p.price } : p)) : stored;
     const products = s?.productIds.length ? all.filter((p) => s.productIds.includes(p.id)) : all;
     const promotions = this.d.store.list("promotions").filter((p) => p.active);
     return {
@@ -508,7 +581,7 @@ export class LiveDirector {
       products,
       promotions,
       currentProductId: this.currentProductId ?? undefined,
-      allowedPrices: allowedPricesFor(all, promotions),
+      allowedPrices: [...allowedPricesFor(stored, promotions), ...(sale ? [sale.price] : [])],
       faqs: this.d.store.list("faqs"),
       recent: this.spoken.slice(-60).map((s) => s.text),
       hour: new Date(this.now()).getHours(),
@@ -533,6 +606,9 @@ export class LiveDirector {
 
   private reset(): void {
     this.clearTimers();
+    for (const t of this.flashTimers) clearTimeout(t);
+    this.flashTimers = [];
+    this.flash = null;
     this.queue = [];
     this.speaking = null;
     this.busy = false;

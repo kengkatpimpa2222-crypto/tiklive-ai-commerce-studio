@@ -131,3 +131,35 @@ describe("LiveDirector", () => {
     expect(director.state().speaking!.id).toBe(first.id);
   });
 });
+
+describe("flash sale", () => {
+  it("announces the sale price, keeps the product on screen, reminds near the end and restores the normal price", async () => {
+    director.start(makeSession());
+    expect(director.startFlashSale("prod_serum", 500, 10).ok).toBe(false);
+    expect(director.startFlashSale("prod_serum", 249, 10).ok).toBe(true);
+    expect(sent.some((c) => c.type === "flash_sale" && c.sale?.price === 249)).toBe(true);
+    expect(director.state().flashSale?.productId).toBe("prod_serum");
+    await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+    const said = spoken().map((s) => s.text).join(" ");
+    expect(said).toContain("ราคาพิเศษ 10 นาที");
+    expect(said).toContain("249 บาท");
+    expect(said).toContain("เหลืออีก 2 นาที");
+    // Free-talk rotation does not move away from the sale product.
+    const shownDuring = sent.flatMap((c) => (c.type === "product" && c.product ? [c.product.id] : []));
+    expect(new Set(shownDuring)).toEqual(new Set(["prod_serum"]));
+
+    const before = sent.length;
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    expect(director.state().flashSale).toBeNull();
+    expect(sent.slice(before).some((c) => c.type === "flash_sale" && c.sale === null)).toBe(true);
+    expect(spoken().map((s) => s.text).join(" ")).toContain("กลับเป็นราคาปกติ 299 บาท");
+    // After the sale the host never says the sale price again.
+    const after = sent.length;
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(sent.slice(after).some((c) => c.type === "speak" && c.segment.text.includes("249 บาท"))).toBe(false);
+  });
+
+  it("refuses before the LIVE starts", () => {
+    expect(director.startFlashSale("prod_serum", 249, 10)).toMatchObject({ ok: false });
+  });
+});

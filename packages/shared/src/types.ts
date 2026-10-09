@@ -286,6 +286,17 @@ export interface LiveSummary {
   suggestions: string[];
 }
 
+/** A short sale at a price the seller has already set in TikTok Shop, with a countdown on screen. */
+export interface FlashSale {
+  productId: string;
+  name: string;
+  price: number;
+  /** The product's normal price in this LIVE. */
+  regularPrice: number;
+  startedAt: string;
+  endsAt: string;
+}
+
 /** Messages sent from the API to the stage window (OBS Browser Source or Electron window). */
 export type StageCommand =
   | { type: "speak"; segment: SpeechSegment }
@@ -296,7 +307,8 @@ export type StageCommand =
   | { type: "settings"; settings: StudioSettings }
   | { type: "question"; question: ViewerQuestion | null }
   | { type: "emotion"; emotion: Emotion }
-  | { type: "gesture"; gesture: Gesture };
+  | { type: "gesture"; gesture: Gesture }
+  | { type: "flash_sale"; sale: FlashSale | null };
 
 /** Messages sent from the stage back to the API. */
 export type StageReport =

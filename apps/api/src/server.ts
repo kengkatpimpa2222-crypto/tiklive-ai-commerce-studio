@@ -708,6 +708,13 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       case "scene": director.setScene(parse(z.object({ sceneId: z.string() }), body).sceneId); break;
       case "gesture": director.gesture(parse(z.object({ gesture: z.enum(GESTURES) }), body).gesture); break;
       case "emotion": director.emotion(parse(z.object({ emotion: z.enum(EMOTIONS) }), body).emotion); break;
+      case "flash-sale": {
+        const f = parse(z.object({ productId: z.string(), price: z.number().positive(), minutes: z.number().int().min(1).max(60), confirmedInShop: z.literal(true, { errorMap: () => ({ message: "ตั้งราคานี้ใน TikTok Shop ก่อน แล้วติ๊กยืนยัน" }) }) }), body);
+        const r = director.startFlashSale(f.productId, f.price, f.minutes);
+        if (!r.ok) return reply.code(422).send({ error: r.reason });
+        break;
+      }
+      case "flash-sale-end": director.endFlashSale(true); break;
       case "qa-mode": director.qaMode = parse(z.object({ mode: z.enum(["auto", "review"]) }), body).mode; break;
       default: return reply.code(404).send({ error: "unknown action" });
     }

@@ -246,3 +246,11 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .day-picks { display: flex; gap: 4px; flex-wrap: wrap; }
 .day-picks button { padding: 4px 8px; min-width: 36px; }
 .schedule-notice { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #3a2a10; border: 1px solid #a57a2a; font-size: 13px; cursor: pointer; }
+.flash-sale { position: absolute; right: 3cqw; top: 22cqh; display: flex; flex-direction: column; align-items: center; padding: 1.6cqw 3cqw; border-radius: 3cqw; background: linear-gradient(135deg, #ff3d6e, #ff8a3d); color: #fff; box-shadow: 0 1cqw 3cqw rgba(0, 0, 0, 0.3); }
+.fs-label { font-size: 3.2cqw; font-weight: 700; }
+.fs-time { font-size: 7cqw; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.product-card.on-sale { outline: 0.8cqw solid #ff3d6e; }
+.flash-card { margin: 10px 0; padding: 10px; border-radius: 10px; border: 1px solid #6a3a4a; background: #22141c; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.flash-card.on { border-color: #ff3d6e; background: #3a1422; }
+.flash-card .row input { flex: 1; }
+.flash-card > button { align-self: flex-start; }

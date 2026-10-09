@@ -1,8 +1,9 @@
-import { EMOTIONS, GESTURES, type HostCharacter, type LiveScript, type LiveSession, type Product, type Promotion, type Scene, type ViewerQuestion } from "@tlai/shared";
+import { EMOTIONS, GESTURES, type FlashSale, type HostCharacter, type LiveScript, type LiveSession, type Product, type Promotion, type Scene, type ViewerQuestion } from "@tlai/shared";
 import { useEffect, useState } from "react";
 import { api, connect } from "../lib/api";
 import { CaptureToggle } from "../lib/CaptureToggle";
 import { useData } from "../lib/useData";
+import { FlashSalePanel } from "./FlashSalePanel";
 import { SchedulePanel } from "./SchedulePanel";
 
 interface DirectorState {
@@ -20,6 +21,7 @@ interface DirectorState {
   startedAt: string | null;
   nextDisclosureAt: number | null;
   pendingQuestions: number;
+  flashSale: FlashSale | null;
 }
 interface PreflightItem {
   code: string;
@@ -400,6 +402,12 @@ export function ControlPage() {
             </button>
           ))}
         </div>
+        <FlashSalePanel
+          products={products.filter((p) => p.status === "ACTIVE" && (!current?.productIds.length || current.productIds.includes(p.id)))}
+          sale={state?.flashSale ?? null}
+          live={!!live && state?.status !== "idle"}
+          now={now}
+        />
 
         <h2>คำถามจากผู้ชม</h2>
         <div className="qa-mode">
