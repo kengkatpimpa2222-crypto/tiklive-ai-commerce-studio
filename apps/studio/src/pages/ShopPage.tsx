@@ -77,6 +77,7 @@ export function ShopPage() {
             {msg && <span className="msg">{msg}</span>}
           </div>
         </div>
+        <BackupCard />
       </div>
 
       <div>
@@ -167,6 +168,44 @@ function MusicUpload({ value, onChange }: { value?: string; onChange: (url: stri
       {value && <button onClick={() => onChange("")}>ลบเพลง</button>}
       <input ref={input} type="file" accept=".mp3,.m4a,.ogg,.wav,audio/*" hidden onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
       {err && <span className="msg">⚠ {err}</span>}
+    </div>
+  );
+}
+
+/** Save everything to one file and bring it back on this or another PC. API keys are not included. */
+function BackupCard() {
+  const input = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const restore = async (file: File) => {
+    if (!window.confirm("ข้อมูลสินค้า ตัวละคร สคริปต์ และประวัติไลฟ์ในเครื่องนี้จะถูกแทนที่ด้วยไฟล์สำรอง ต้องการทำต่อไหม")) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const body = JSON.parse(await file.text()) as unknown;
+      const r = await api<{ products: number; characters: number }>("/backup/restore", { body });
+      setMsg(`นำข้อมูลกลับมาแล้ว สินค้า ${r.products} รายการ ตัวละคร ${r.characters} ตัว`);
+      window.setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      setMsg(`⚠ ${e instanceof SyntaxError ? "ไฟล์นี้ไม่ใช่ไฟล์สำรองของแอป" : (e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card form">
+      <h2>สำรองข้อมูลและย้ายเครื่อง</h2>
+      <p className="note">บันทึกสินค้า ตัวละคร สคริปต์ โปรโมชั่น เวลาไลฟ์ ประวัติไลฟ์ รูปและเพลงที่อัปโหลดไว้ เป็นไฟล์เดียว ไม่รวม API key (ต้องใส่ใหม่ในเครื่องใหม่)</p>
+      <div className="row">
+        <a className="button primary" href="/api/backup" download>
+          บันทึกไฟล์สำรอง
+        </a>
+        <button disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? "กำลังนำกลับ…" : "นำข้อมูลกลับจากไฟล์"}
+        </button>
+        <input ref={input} type="file" accept=".json,application/json" hidden onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
+      </div>
+      {msg && <span className="msg">{msg}</span>}
     </div>
   );
 }

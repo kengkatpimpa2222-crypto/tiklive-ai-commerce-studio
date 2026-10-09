@@ -88,6 +88,25 @@ export class Store {
     return true;
   }
 
+  /** Data safe to move to another PC: everything except API keys. */
+  exportable(): Omit<Db, "ai" | "avatarService"> {
+    const { ai: _ai, avatarService: _svc, ...rest } = this.db;
+    return structuredClone(rest);
+  }
+
+  /** Replaces all shop data with a backup; API keys on this PC are kept. */
+  restore(data: Partial<Db>): void {
+    const base = seed();
+    for (const k of Object.keys(base) as (keyof Db)[]) {
+      if (k === "settings") continue;
+      const v = data[k];
+      (this.db as unknown as Record<string, unknown>)[k] = Array.isArray(v) ? v : (base as unknown as Record<string, unknown>)[k];
+    }
+    this.db.settings = { stage: { ...base.settings.stage, ...data.settings?.stage } };
+    this.db.mainCharacterId = data.mainCharacterId;
+    this.flush();
+  }
+
   setAi(cfg: AiConfig): void {
     this.db.ai = cfg;
     this.save();

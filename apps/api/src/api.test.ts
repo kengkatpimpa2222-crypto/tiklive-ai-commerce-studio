@@ -451,3 +451,24 @@ describe("questions the team answers", () => {
     expect(draft.text).toContain("ปรึกษาแพทย์");
   });
 });
+
+describe("backup", () => {
+  it("exports everything but API keys, with uploaded files, and restores it", async () => {
+    const png = Buffer.from("89504e470d0a1a0a", "hex").toString("base64");
+    const { url } = json(await ctx.app.inject({ method: "POST", url: "/api/uploads", payload: { filename: "p.png", dataBase64: png } }));
+    await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_serum", payload: { imageUrl: url } });
+    ctx.store.db.ai = { provider: "openai", apiKey: "sk-secret", model: "x" } as never;
+    const backup = await ctx.app.inject({ method: "GET", url: "/api/backup" });
+    expect(backup.headers["content-disposition"]).toContain("tiklive-backup-");
+    expect(backup.body).not.toContain("sk-secret");
+    const b = json(backup);
+    expect(Object.keys(b.files)).toEqual([url.split("/").pop()]);
+
+    await ctx.app.inject({ method: "DELETE", url: "/api/products/prod_serum" });
+    const r = await ctx.app.inject({ method: "POST", url: "/api/backup/restore", payload: b });
+    expect(json(r)).toMatchObject({ ok: true, products: 3 });
+    expect(json(await ctx.app.inject({ method: "GET", url: "/api/products/prod_serum" })).imageUrl).toBe(url);
+    expect(ctx.store.db.ai?.apiKey).toBe("sk-secret");
+    expect((await ctx.app.inject({ method: "POST", url: "/api/backup/restore", payload: { hello: 1 } })).statusCode).toBe(400);
+  });
+});

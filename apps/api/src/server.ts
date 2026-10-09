@@ -264,6 +264,32 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     if (!buf) return reply.code(404).send();
     return reply.type(MEDIA_TYPES[ext]!).header("cache-control", "public, max-age=31536000, immutable").send(buf);
   });
+  // ---- backup: move products, hosts, scripts, history and uploaded files to another PC (no API keys) ----
+  const readUpload = (name: string) => (uploadsDir ? (existsSync(join(uploadsDir, name)) ? readFileSync(join(uploadsDir, name)) : undefined) : memoryUploads.get(name));
+  app.get("/api/backup", async (_req, reply) => {
+    const data = store.exportable();
+    const names = [...new Set([...JSON.stringify(data).matchAll(/\/uploads\/([\w.-]+)/g)].map((m) => m[1]!))];
+    const files = Object.fromEntries(names.flatMap((n) => { const b = readUpload(n); return b ? [[n, b.toString("base64")]] : []; }));
+    const day = new Date().toISOString().slice(0, 10);
+    return reply.header("content-disposition", `attachment; filename="tiklive-backup-${day}.json"`).send({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data, files });
+  });
+  app.post("/api/backup/restore", { bodyLimit: 400 * 1024 * 1024 }, async (req, reply) => {
+    if (store.list("sessions").some((x) => x.status === "LIVE")) return reply.code(409).send({ error: "จบไลฟ์ก่อน แล้วค่อยนำข้อมูลกลับมา" });
+    const b = z.object({ app: z.literal(BACKUP_APP), version: z.literal(1), data: z.object({ products: z.array(z.object({ id: z.string() }).passthrough()), characters: z.array(z.object({ id: z.string() }).passthrough()) }).passthrough(), files: z.record(z.string()).default({}) }).safeParse(req.body);
+    if (!b.success) return reply.code(400).send({ error: "ไฟล์นี้ไม่ใช่ไฟล์สำรองของ TikLive AI Commerce Studio" });
+    for (const [name, b64] of Object.entries(b.data.files)) {
+      const ext = name.split(".").pop()!.toLowerCase();
+      if (!/^[\w.-]+$/.test(name) || !MEDIA_TYPES[ext]) continue;
+      const buf = Buffer.from(b64, "base64");
+      if (uploadsDir) {
+        mkdirSync(uploadsDir, { recursive: true });
+        writeFileSync(join(uploadsDir, name), buf);
+      } else memoryUploads.set(name, buf);
+    }
+    store.restore(b.data.data as never);
+    return { ok: true, products: store.list("products").length, characters: store.list("characters").length };
+  });
+
   // ---- product import: a pasted link (its preview metadata) or pasted text → draft for review ----
   const fetchPage = async (url: URL, accept: string, maxBytes: number) => {
     const f = opts.llmFetch ?? fetch;
@@ -782,6 +808,8 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   });
   return { app, store, director, runSchedules };
 }
+
+const BACKUP_APP = "tiklive-ai-commerce-studio";
 
 const IMPORT_UA = "TikLiveAIStudio/1.0 (product link preview; one request per pasted link)";
 
