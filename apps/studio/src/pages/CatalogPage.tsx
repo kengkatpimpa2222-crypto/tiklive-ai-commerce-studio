@@ -11,7 +11,7 @@ export function CatalogPage() {
   const [promos, reloadPromos] = useData<Promotion[]>("/promotions", []);
   const [f, setF] = useState(emptyProduct);
   const [editing, setEditing] = useState<string | null>(null);
-  const [promo, setPromo] = useState({ title: "", detail: "", productIds: [] as string[], endsAt: "" });
+  const [promo, setPromo] = useState({ title: "", detail: "", productIds: [] as string[], endsAt: "", code: "" });
   const [err, setErr] = useState("");
   const [imp, setImp] = useState({ input: "", busy: false, msg: "", warnings: [] as string[], needsText: false });
 
@@ -99,6 +99,7 @@ export function CatalogPage() {
               <label>
                 <input type="checkbox" checked={p.active} onChange={(e) => api(`/promotions/${p.id}`, { method: "PATCH", body: { active: e.target.checked } }).then(reloadPromos)} />
                 <b>{p.title}</b> {p.detail}
+                {p.code && <span className="chip-code">โค้ด {p.code}</span>}
                 {p.endsAt && <small className="muted"> · หมดเขต {new Date(p.endsAt).toLocaleString("th-TH")}</small>}
                 {p.productIds.length > 0 && <small className="muted"> · {p.productIds.map((id) => products.find((x) => x.id === id)?.name ?? id).join(", ")}</small>}
               </label>
@@ -109,6 +110,7 @@ export function CatalogPage() {
         <div className="form">
           <input placeholder="ชื่อโปร" value={promo.title} onChange={(e) => setPromo({ ...promo, title: e.target.value })} />
           <input placeholder="รายละเอียดที่ให้ AI อ่าน (ตรงตามเงื่อนไขจริง)" value={promo.detail} onChange={(e) => setPromo({ ...promo, detail: e.target.value })} />
+          <input placeholder="โค้ดส่วนลด (ถ้ามี ต้องตรงกับที่ตั้งใน TikTok Shop)" value={promo.code} onChange={(e) => setPromo({ ...promo, code: e.target.value.trim() })} />
           <div className="row">
             <label>
               ใช้กับสินค้า
@@ -126,9 +128,9 @@ export function CatalogPage() {
             disabled={!promo.title || !promo.detail}
             onClick={() =>
               api("/promotions", { body: { ...promo, endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString() : undefined } }).then(() => {
-                setPromo({ title: "", detail: "", productIds: [], endsAt: "" });
+                setPromo({ title: "", detail: "", productIds: [], endsAt: "", code: "" });
                 reloadPromos();
-              })
+              }).catch((e: Error) => setErr(e.message))
             }
           >
             เพิ่มโปรโมชั่น

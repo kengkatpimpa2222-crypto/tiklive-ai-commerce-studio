@@ -417,3 +417,13 @@ describe("flash sale API", () => {
     expect(json(end).flashSale).toBeNull();
   });
 });
+
+describe("promotion codes", () => {
+  it("accepts a code and rejects symbols", async () => {
+    const ok = await ctx.app.inject({ method: "POST", url: "/api/promotions", payload: { title: "ลด", detail: "ลด 20 บาท", code: "LIVE20" } });
+    expect(json(ok).code).toBe("LIVE20");
+    const empty = await ctx.app.inject({ method: "POST", url: "/api/promotions", payload: { title: "ลด", detail: "ลด 20 บาท", code: "" } });
+    expect(json(empty).code).toBeUndefined();
+    expect((await ctx.app.inject({ method: "POST", url: "/api/promotions", payload: { title: "ลด", detail: "x", code: "<b>" } })).statusCode).toBe(400);
+  });
+});

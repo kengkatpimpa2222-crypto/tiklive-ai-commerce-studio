@@ -298,3 +298,10 @@ describe("paired products", () => {
     expect(brain.pitchTemplate(serum, { ...pairCtx, products: [serum, { ...cream, stock: 0 }] })).not.toContain("ครีมกันแดด");
   });
 });
+
+describe("discount codes", () => {
+  it("reads the code with the promotion", async () => {
+    const out = await new HostBrain().promo({ ...promo, code: "LIVE20" }, ctx);
+    expect(out.text).toContain("LIVE20");
+  });
+});

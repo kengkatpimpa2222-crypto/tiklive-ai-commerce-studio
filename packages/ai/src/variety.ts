@@ -157,6 +157,7 @@ export function talkCandidates(t: TalkContext, v: VoiceBits): Record<TalkKind, s
   }
   for (const x of t.promos.filter((x) => x.active && (!p || x.productIds.length === 0 || x.productIds.includes(p.id)))) {
     out.promo.push(`โปรตอนนี้${e} ${spaced(`${x.title} ${x.detail}`)}${e}`, `อย่าลืมโปร${x.title}${e} ${spaced(x.detail)}${e}`);
+    if (x.code) out.promo.push(`ใครยังไม่ได้ใช้โค้ด ${spaced(x.code)}${e} ${spaced(`${x.title} ${x.detail}`)}${e}`);
   }
   out.welcome.push(
     `${greet}${e} ยินดีต้อนรับทุกคนที่เพิ่งเข้ามา${e}`,

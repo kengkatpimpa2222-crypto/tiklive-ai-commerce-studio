@@ -25,6 +25,7 @@ export const promotionInput = z.object({
   startsAt: z.string().optional(),
   endsAt: z.string().optional(),
   active: z.boolean().default(true),
+  code: z.string().trim().max(30).regex(/^[\p{L}\p{N}_-]*$/u, "โค้ดใช้ได้เฉพาะตัวอักษรและตัวเลข").optional().transform((c) => c || undefined),
 });
 
 export const sceneInput = z.object({

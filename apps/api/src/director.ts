@@ -263,6 +263,7 @@ export class LiveDirector {
     if (!promo || !promo.active) return;
     const out = await this.d.brain.promo(promo, this.brainCtx());
     this.log({ type: "promo_read", text: promo.title });
+    if (promo.code) this.d.send({ type: "coupon", promotion: promo });
     this.enqueue(this.seg(out.text, "promo", { productId: this.currentProductId ?? undefined, baseEmotion: "excited" }), priority);
   }
 

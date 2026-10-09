@@ -55,6 +55,8 @@ export interface Promotion {
   startsAt?: string;
   endsAt?: string;
   active: boolean;
+  /** Discount code exactly as set in TikTok Shop; shown on screen and read by the host. */
+  code?: string;
 }
 
 /** Shop-level answers (shipping, payment, returns) the host may give for any product. */
@@ -310,7 +312,9 @@ export type StageCommand =
   | { type: "question"; question: ViewerQuestion | null }
   | { type: "emotion"; emotion: Emotion }
   | { type: "gesture"; gesture: Gesture }
-  | { type: "flash_sale"; sale: FlashSale | null };
+  | { type: "flash_sale"; sale: FlashSale | null }
+  /** A discount code shown large for a few seconds while the host reads it. */
+  | { type: "coupon"; promotion: Promotion };
 
 /** Messages sent from the stage back to the API. */
 export type StageReport =

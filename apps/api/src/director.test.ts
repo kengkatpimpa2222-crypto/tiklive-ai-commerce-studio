@@ -163,3 +163,12 @@ describe("flash sale", () => {
     expect(director.startFlashSale("prod_serum", 249, 10)).toMatchObject({ ok: false });
   });
 });
+
+describe("coupon spotlight", () => {
+  it("shows the code on screen when the host reads a promotion that has one", async () => {
+    const promo = store.insert("promotions", { id: "pr_code", title: "ลดเพิ่ม", detail: "ลด 20 บาท", productIds: [], active: true, code: "LIVE20" });
+    director.start(makeSession());
+    await director.readPromo(promo.id);
+    expect(sent.some((c) => c.type === "coupon" && c.promotion.code === "LIVE20")).toBe(true);
+  });
+});

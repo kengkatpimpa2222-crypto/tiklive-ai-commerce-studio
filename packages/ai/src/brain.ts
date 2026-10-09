@@ -92,7 +92,7 @@ export function productFacts(p: Product, promos: Promotion[], lineup: readonly P
     p.description && `รายละเอียด: ${p.description}`,
     p.highlights.length > 0 && `จุดเด่น: ${p.highlights.join(" / ")}`,
     ...Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`),
-    ...promosFor(p, promos).map((x) => `โปรโมชั่น: ${x.title} - ${x.detail}`),
+    ...promosFor(p, promos).map((x) => `โปรโมชั่น: ${x.title} - ${x.detail}${x.code ? ` (โค้ด ${x.code})` : ""}`),
     ...(p.qa ?? []).map((x) => `ถาม: ${x.question} ตอบ: ${x.answer}`),
     ...pairsOf(p, lineup).map((x) => `ใช้คู่กับ: ${x.name} ราคา ${formatBaht(x.price)}`),
   ];
@@ -184,7 +184,8 @@ export class HostBrain {
 
   async promo(promo: Promotion, ctx: BrainContext): Promise<BrainOutput> {
     const c = ctx.character;
-    const template = `โปรโมชั่นตอนนี้${end(c)} ${promo.title} ${promo.detail} ${promo.endsAt ? `ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")} ` : ""}รายละเอียดเงื่อนไขดูได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
+    const code = promo.code ? `ใช้โค้ด ${spaced(promo.code)}ตามบนจอได้เลย${end(c)} ` : "";
+    const template = `โปรโมชั่นตอนนี้${end(c)} ${promo.title} ${promo.detail} ${promo.endsAt ? `ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")} ` : ""}${code}รายละเอียดเงื่อนไขดูได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
     const safe = `ดูโปรโมชั่นได้ที่ตะกร้าสินค้าเลย${endQ(c)}`;
     if (!this.llm) return this.guardSync(template, "template", ctx, undefined, safe);
     const text = await this.llm
@@ -192,7 +193,7 @@ export class HostBrain {
         { role: "system", content: systemPrompt(ctx) },
         {
           role: "user",
-          content: `โปรโมชั่น: ${promo.title} - ${promo.detail}${promo.endsAt ? ` (ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")})` : ""}\n\nบอกโปรนี้กับคนดูด้วยคำพูดของคุณเอง 2-3 ประโยค ตื่นเต้นแต่ไม่เร่งเร้าเกินจริง บอกว่าดูเงื่อนไขได้ที่ตะกร้า${recentBlock(ctx)}`,
+          content: `โปรโมชั่น: ${promo.title} - ${promo.detail}${promo.code ? ` (โค้ดส่วนลด ${promo.code} ต้องพูดโค้ดนี้ให้ตรงทุกตัวอักษร)` : ""}${promo.endsAt ? ` (ถึงวันที่ ${new Date(promo.endsAt).toLocaleDateString("th-TH")})` : ""}\n\nบอกโปรนี้กับคนดูด้วยคำพูดของคุณเอง 2-3 ประโยค ตื่นเต้นแต่ไม่เร่งเร้าเกินจริง บอกว่าดูเงื่อนไขได้ที่ตะกร้า${recentBlock(ctx)}`,
         },
       ], { temperature: 0.9, maxTokens: 200 })
       .catch(() => "");
