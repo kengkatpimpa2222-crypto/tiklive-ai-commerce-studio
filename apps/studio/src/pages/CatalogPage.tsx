@@ -1,10 +1,10 @@
-import type { Product, Promotion } from "@tlai/shared";
+import type { Product, ProductQa, Promotion } from "@tlai/shared";
 import { useState } from "react";
 import { api } from "../lib/api";
 import { ImageUpload } from "../lib/ImageUpload";
 import { useData } from "../lib/useData";
 
-const emptyProduct = { sku: "", name: "", description: "", price: "", compareAtPrice: "", stock: "", category: "", highlights: "", specs: "", imageUrl: "" };
+const emptyProduct = { sku: "", name: "", description: "", price: "", compareAtPrice: "", stock: "", category: "", highlights: "", specs: "", imageUrl: "", qa: [] as ProductQa[] };
 
 export function CatalogPage() {
   const [products, reload] = useData<Product[]>("/products", []);
@@ -28,7 +28,7 @@ export function CatalogPage() {
         sku: String(d.sku || ""), name: String(d.name ?? ""), description: String(d.description ?? ""),
         price: d.price !== undefined ? String(d.price) : "", compareAtPrice: d.compareAtPrice !== undefined ? String(d.compareAtPrice) : "",
         stock: "", category: String(d.category ?? ""), imageUrl: String(d.imageUrl ?? ""),
-        highlights: d.highlights.join("\n"), specs: Object.entries(d.specs).map(([k, v]) => `${k}: ${v}`).join("\n"),
+        highlights: d.highlights.join("\n"), specs: Object.entries(d.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: [],
       });
       setImp({ input: "", busy: false, warnings: r.warnings, needsText: false, msg: r.via === "llm" ? "AI กรอกข้อมูลและเขียนจุดขายให้แล้ว ตรวจให้ถูกต้อง ใส่ SKU และสต็อก แล้วกดบันทึก" : "กรอกข้อมูลเบื้องต้นให้แล้ว ตรวจ ใส่ SKU และสต็อก แล้วกดบันทึก (เปิดสมอง AI จะได้จุดขายที่พร้อมพูดในไลฟ์)" });
     } catch (e) {
@@ -42,7 +42,7 @@ export function CatalogPage() {
     setF({
       sku: p.sku, name: p.name, description: p.description, price: String(p.price), compareAtPrice: p.compareAtPrice ? String(p.compareAtPrice) : "",
       stock: String(p.stock), category: p.category, highlights: p.highlights.join("\n"), imageUrl: p.imageUrl ?? "",
-      specs: Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n"),
+      specs: Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: p.qa ?? [],
     });
   };
 
@@ -53,6 +53,7 @@ export function CatalogPage() {
       imageUrl: f.imageUrl || undefined,
       highlights: f.highlights.split("\n").map((s) => s.trim()).filter(Boolean),
       specs: Object.fromEntries(f.specs.split("\n").map((l) => l.split(/:(.*)/s).map((s) => s.trim())).filter(([k, v]) => k && v)),
+      qa: f.qa.map((x) => ({ question: x.question.trim(), answer: x.answer.trim() })).filter((x) => x.question && x.answer),
     };
     try {
       await api(editing ? `/products/${editing}` : "/products", { method: editing ? "PATCH" : "POST", body });
@@ -169,6 +170,7 @@ export function CatalogPage() {
         </label>
         <textarea placeholder={"จุดเด่นที่ตรวจสอบแล้ว (บรรทัดละข้อ)"} value={f.highlights} onChange={(e) => setF({ ...f, highlights: e.target.value })} />
         <textarea placeholder={"ข้อมูลจำเพาะ เช่น\nขนาด: 30 ml\nวัสดุ: สแตนเลส"} value={f.specs} onChange={(e) => setF({ ...f, specs: e.target.value })} />
+        <QaEditor value={f.qa} onChange={(qa) => setF({ ...f, qa })} />
         <p className="note">AI จะพูดและตอบคำถามจากข้อมูลในหน้านี้เท่านั้น ถ้าไม่มีข้อมูลจะบอกผู้ชมว่าให้ทีมงานตอบ</p>
         {err && <div className="msg">⚠ {err}</div>}
         <div className="row">
@@ -177,6 +179,25 @@ export function CatalogPage() {
         </div>
       </div>
       </div>
+    </div>
+  );
+}
+
+/** Questions viewers often ask about this product, with the shop's own answers. */
+function QaEditor({ value, onChange }: { value: ProductQa[]; onChange: (v: ProductQa[]) => void }) {
+  const set = (i: number, patch: Partial<ProductQa>) => onChange(value.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="qa-editor">
+      <strong>คำถามที่ลูกค้าถามบ่อย ({value.length})</strong>
+      <p className="note">เขียนคำตอบของร้านเองได้ เมื่อมีคนถามคล้าย ๆ กัน AI จะตอบตามนี้ก่อน เช่น ผิวแพ้ง่ายใช้ได้ไหม, ใช้ตอนไหน, มีกลิ่นไหม</p>
+      {value.map((x, i) => (
+        <div className="qa-row" key={i}>
+          <input placeholder="คำถาม เช่น ใช้กับผิวแพ้ง่ายได้ไหม" value={x.question} onChange={(e) => set(i, { question: e.target.value })} />
+          <textarea placeholder="คำตอบของร้าน" value={x.answer} onChange={(e) => set(i, { answer: e.target.value })} />
+          <button onClick={() => onChange(value.filter((_, j) => j !== i))}>ลบ</button>
+        </div>
+      ))}
+      {value.length < 30 && <button onClick={() => onChange([...value, { question: "", answer: "" }])}>+ เพิ่มคำถาม</button>}
     </div>
   );
 }

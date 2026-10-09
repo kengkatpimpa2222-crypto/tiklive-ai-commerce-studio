@@ -231,3 +231,9 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .ticker span { white-space: nowrap; padding-left: 100%; animation: ticker 18s linear infinite; }
 @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 .caption.above-ticker { bottom: 6cqh; }
+.qa-editor { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.qa-editor > button { align-self: flex-start; }
+.qa-row { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
+.qa-row input { grid-column: 1; }
+.qa-row textarea { grid-column: 1; min-height: 44px; }
+.qa-row button { grid-column: 2; grid-row: 1 / span 2; align-self: start; }

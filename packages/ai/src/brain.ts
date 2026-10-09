@@ -6,7 +6,7 @@ import {
   isIdentityQuestion,
   type ClaimIssue,
 } from "@tlai/compliance";
-import { formatBaht, type FaqEntry, type HostCharacter, type Product, type Promotion } from "@tlai/shared";
+import { formatBaht, type FaqEntry, type HostCharacter, type Product, type ProductQa, type Promotion } from "@tlai/shared";
 import type { LlmProvider } from "./llm.js";
 import { nextTalk, pitchLines, spaced, voiceOf, type Rng, type TalkKind } from "./variety.js";
 
@@ -44,6 +44,30 @@ export function matchFaq(question: string, faqs: FaqEntry[] = []): FaqEntry | un
   return best?.f;
 }
 
+/** Question words that carry no topic; stripped so "ได้ไหม" alone never makes two questions match. */
+const QUESTION_FILLER = /เท่าไหร่|เท่าไร|อะไร|แบบไหน|ตัวนี้|อันนี้|ได้ไหม|ได้มั้ย|ได้มั๊ย|ได้ป่าว|หรือเปล่า|หรือไม่|รึเปล่า|ไหม|มั้ย|มั๊ย|ป่าว|ยังไง|อย่างไร|บ้าง|นะคะ|นะครับ|ครับ|ค่ะ|คะ|คับ|จ้า|จ้ะ|ค่า|หน่อย|[?？!.,\s]/g;
+
+/**
+ * The seller's own answer for a question about this product, if one fits. Viewers word things
+ * their own way ("ผิวแพ้ง่ายใช้ได้มั้ย" for "ใช้กับผิวแพ้ง่ายได้ไหม"), so the longest shared run
+ * of characters decides once the product name and question words are set aside.
+ */
+export function matchProductQa(question: string, p: Product | undefined): ProductQa | undefined {
+  if (!p?.qa?.length) return undefined;
+  const strip = (t: string) => t.toLowerCase().split(p.name.toLowerCase()).join("").replace(QUESTION_FILLER, "");
+  const q = strip(question);
+  if (q.length < 2) return undefined;
+  let best: { qa: ProductQa; score: number } | undefined;
+  for (const qa of p.qa) {
+    const k = strip(qa.question);
+    if (!k) continue;
+    const run = q.includes(k) || k.includes(q) ? Math.min(q.length, k.length) : longestCommonRun(q, k);
+    const score = run / Math.min(q.length, k.length);
+    if ((run >= 4 || score === 1) && score >= 0.5 && (!best || score > best.score)) best = { qa, score };
+  }
+  return best?.qa;
+}
+
 export interface BrainOutput {
   text: string;
   /** "llm" when generated, "template" when the offline brain or a fallback produced it. */
@@ -69,6 +93,7 @@ export function productFacts(p: Product, promos: Promotion[]): string {
     p.highlights.length > 0 && `จุดเด่น: ${p.highlights.join(" / ")}`,
     ...Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`),
     ...promosFor(p, promos).map((x) => `โปรโมชั่น: ${x.title} - ${x.detail}`),
+    ...(p.qa ?? []).map((x) => `ถาม: ${x.question} ตอบ: ${x.answer}`),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -176,10 +201,12 @@ export class HostBrain {
     const c = ctx.character;
     if (isIdentityQuestion(question)) return { text: identityAnswer(c), via: "identity", issues: [] };
     const product = this.findProduct(question, ctx);
+    // The seller's own answer for this product comes first.
+    const own = matchProductQa(question, product);
     const faq = matchFaq(question, ctx.faqs);
     // Shop questions (shipping, payment, returns) are answered from the FAQ unless the viewer asks about product facts.
     const faqOnly = faq && !PRODUCT_FACT_QUESTION.test(question);
-    const template = faqOnly ? matchParticle(faq.answer, c) : this.answerTemplate(question, product, ctx);
+    const template = own ? matchParticle(own.answer, c) : faqOnly ? matchParticle(faq.answer, c) : this.answerTemplate(question, product, ctx);
     if (!this.llm) return this.guard(template, "template", ctx, product, template);
     const facts = [
       ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
@@ -190,7 +217,7 @@ export class HostBrain {
         { role: "system", content: systemPrompt(ctx) },
         {
           role: "user",
-          content: `ข้อมูลสินค้าและร้าน:\n${facts}\n\nคำถามจากผู้ชม: "${question}"\nตอบคนดูคนนี้ด้วยคำพูดของคุณเอง 1-3 ประโยคสั้น ๆ เป็นกันเอง ตอบจากข้อมูลข้างบนเท่านั้น ถ้าข้อมูลไม่พอให้บอกว่าจะให้ทีมงานตรวจสอบ${recentBlock(ctx, 6)}`,
+          content: `ข้อมูลสินค้าและร้าน:\n${facts}\n\nคำถามจากผู้ชม: "${question}"\n${own ? `ร้านเขียนคำตอบของคำถามนี้ไว้แล้ว: "${own.answer}" ให้ตอบตามนี้ ห้ามเพิ่มข้อมูลอื่นที่ขัดกัน\n` : ""}ตอบคนดูคนนี้ด้วยคำพูดของคุณเอง 1-3 ประโยคสั้น ๆ เป็นกันเอง ตอบจากข้อมูลข้างบนเท่านั้น ถ้าข้อมูลไม่พอให้บอกว่าจะให้ทีมงานตรวจสอบ${recentBlock(ctx, 6)}`,
         },
       ], { temperature: 0.5, maxTokens: 220 })
       .catch(() => "");

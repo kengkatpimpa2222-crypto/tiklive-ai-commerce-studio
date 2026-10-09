@@ -48,7 +48,7 @@ export function runPreflight(input: PreflightInput): { ok: boolean; items: Prefl
       add(`PRODUCT_COMPARE_${p.sku}`, p.compareAtPrice > p.price, `${p.name}: ราคาเดิมต้องสูงกว่าราคาขาย`);
     }
     add(`PRODUCT_FACTS_${p.sku}`, p.highlights.length > 0 || p.description.length > 0, `${p.name}: ควรมีจุดเด่นที่ตรวจสอบแล้ว`, "warn");
-    const issues = [...p.highlights, p.description].flatMap((t) => checkClaims(t, { product: p }));
+    const issues = [...p.highlights, p.description, ...(p.qa ?? []).map((x) => x.answer)].flatMap((t) => checkClaims(t, { product: p }));
     pushClaimItems(items, `PRODUCT_CLAIMS_${p.sku}`, p.name, issues);
   }
 

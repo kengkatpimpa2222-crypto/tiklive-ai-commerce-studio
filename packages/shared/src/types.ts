@@ -34,7 +34,14 @@ export interface Product {
   highlights: string[];
   /** Verified spec facts, e.g. { "ขนาด": "250 ml" }. Used to ground Q&A answers. */
   specs: Record<string, string>;
+  /** Seller-written answers to questions viewers often ask about this product; used first when answering. */
+  qa?: ProductQa[];
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+}
+
+export interface ProductQa {
+  question: string;
+  answer: string;
 }
 
 export interface Promotion {

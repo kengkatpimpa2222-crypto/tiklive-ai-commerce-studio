@@ -352,3 +352,18 @@ describe("stage extras", () => {
     expect((await ctx.app.inject({ method: "PATCH", url: "/api/settings/stage", payload: { bgmVolume: 3 } })).statusCode).toBe(400);
   });
 });
+
+describe("product Q&A", () => {
+  it("saves the shop's answers and blocks ones that break the rules at preflight", async () => {
+    const qa = [{ question: "มีกลิ่นไหม", answer: "ไม่มีน้ำหอมค่ะ" }];
+    const r = await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_bottle", payload: { qa } });
+    expect(json(r).qa).toEqual(qa);
+    expect((await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_bottle", payload: { qa: [{ question: "", answer: "x" }] } })).statusCode).toBe(400);
+    const pf = await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_bottle", payload: { qa: [{ question: "ดีไหม", answer: "การันตีหายขาดใน 7 วัน" }] } });
+    expect(pf.statusCode).toBe(200);
+    const live = json(await ctx.app.inject({ method: "POST", url: "/api/live", payload: { title: "ไลฟ์ทดสอบ", characterId: "char_mint", scriptId: "script_demo", productIds: ["prod_bottle"] } }));
+    const r2 = await ctx.app.inject({ method: "POST", url: `/api/live/${live.id}/start` });
+    expect(r2.statusCode).toBe(422);
+    expect(JSON.stringify(json(r2).preflight.items.filter((i: { ok: boolean }) => !i.ok))).toContain("กระบอกน้ำ");
+  });
+});

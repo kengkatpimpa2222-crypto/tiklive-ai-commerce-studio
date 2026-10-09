@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HostCharacter, LiveSession, Product, Promotion } from "@tlai/shared";
-import { annotate, HostBrain, summarizeLive, type LlmProvider } from "./index.js";
+import { annotate, HostBrain, matchProductQa, summarizeLive, type LlmProvider } from "./index.js";
 
 const character: HostCharacter = {
   id: "c1", name: "น้องมินท์", disclosureLabel: "AI Virtual Host", persona: "", politeParticle: "ค่ะ",
@@ -235,5 +235,44 @@ describe("summary disclosure count", () => {
       ],
     };
     expect(summarizeLive(s, []).disclosures).toBe(2);
+  });
+});
+
+describe("per-product Q&A", () => {
+  const withQa: Product = {
+    ...product,
+    qa: [
+      { question: "ใช้กับผิวแพ้ง่ายได้ไหม", answer: "ใช้ได้ค่ะ สูตรไม่มีน้ำหอม แนะนำทดสอบที่ท้องแขนก่อน" },
+      { question: "ใช้ตอนเช้าหรือกลางคืน", answer: "ใช้ได้ทั้งเช้าและเย็นค่ะ ตอนเช้าทากันแดดทับ" },
+    ],
+  };
+  const qaCtx = { ...ctx, products: [withQa], faqs: [{ id: "f1", topic: "ส่ง", keywords: ["ส่ง", "กี่วัน"], answer: "ส่งภายใน 1-2 วันค่ะ" }] };
+  const brain = new HostBrain();
+  it("answers with the seller's own answer when worded differently", async () => {
+    expect(matchProductQa("ผิวแพ้ง่ายใช้ได้มั้ยคะ", withQa)?.answer).toContain("ท้องแขน");
+    expect((await brain.answer("แม่ ผิวแพ้ง่ายใช้ได้มั้ย", qaCtx)).text).toContain("ท้องแขน");
+    expect((await brain.answer("เซรั่มวิตามินซีใช้ตอนกลางคืนได้ไหม", qaCtx)).text).toContain("เช้าและเย็น");
+  });
+  it("matches the host's particle", async () => {
+    const out = await brain.answer("ผิวแพ้ง่ายใช้ได้ไหม", { ...qaCtx, character: { ...character, politeParticle: "ครับ" } });
+    expect(out.text).toContain("ใช้ได้ครับ");
+  });
+  it("leaves other questions to facts and the shop FAQ", async () => {
+    expect(matchProductQa("ราคาเท่าไหร่คะ", withQa)).toBeUndefined();
+    expect(matchProductQa("ได้ไหมคะ", withQa)).toBeUndefined();
+    expect((await brain.answer("ราคาเท่าไหร่คะ", qaCtx)).text).toContain("299 บาท");
+    expect((await brain.answer("ส่งกี่วัน", qaCtx)).text).toContain("1-2 วัน");
+  });
+  it("blocks a seller answer that breaks advertising rules", async () => {
+    const bad = { ...withQa, qa: [{ question: "รักษาสิวได้ไหม", answer: "รักษาสิวหายขาด 100% ค่ะ" }] };
+    const out = await brain.answer("รักษาสิวได้ไหม", { ...qaCtx, products: [bad] });
+    expect(out.text).not.toContain("หายขาด");
+  });
+  it("hands a matched answer to the AI provider", async () => {
+    let prompt = "";
+    const llm: LlmProvider = { id: "fake", complete: async (m) => ((prompt = m.map((x) => x.content).join("\n")), "ใช้ได้ค่ะ ลองที่ท้องแขนก่อนนะคะ") };
+    const out = await new HostBrain(llm).answer("ผิวแพ้ง่ายใช้ได้ไหม", qaCtx);
+    expect(prompt).toContain("ร้านเขียนคำตอบของคำถามนี้ไว้แล้ว");
+    expect(out.via).toBe("llm");
   });
 });
