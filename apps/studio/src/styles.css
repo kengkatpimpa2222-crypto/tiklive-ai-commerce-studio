@@ -254,3 +254,4 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .flash-card.on { border-color: #ff3d6e; background: #3a1422; }
 .flash-card .row input { flex: 1; }
 .flash-card > button { align-self: flex-start; }
+.pair-picks { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }

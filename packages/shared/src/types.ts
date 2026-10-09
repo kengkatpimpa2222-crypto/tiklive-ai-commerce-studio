@@ -36,6 +36,8 @@ export interface Product {
   specs: Record<string, string>;
   /** Seller-written answers to questions viewers often ask about this product; used first when answering. */
   qa?: ProductQa[];
+  /** Other products the seller says go well with this one; the host suggests them together. */
+  pairsWith?: string[];
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
 }
 

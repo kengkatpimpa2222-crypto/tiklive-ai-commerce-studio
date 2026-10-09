@@ -276,3 +276,25 @@ describe("per-product Q&A", () => {
     expect(out.via).toBe("llm");
   });
 });
+
+describe("paired products", () => {
+  const cream: Product = { ...product, id: "p2", sku: "CRM-01", name: "ครีมกันแดด", price: 259, compareAtPrice: undefined, highlights: ["SPF50"], specs: {} };
+  const serum: Product = { ...product, pairsWith: ["p2", "gone"] };
+  const pairCtx = { ...ctx, products: [serum, cream], allowedPrices: [299, 450, 259] };
+  it("answers what goes with the product on screen, with the real price", async () => {
+    const out = await new HostBrain().answer("ใช้คู่กับอะไรดีคะ", pairCtx);
+    expect(out.text).toContain("ครีมกันแดด ราคา 259 บาท");
+  });
+  it("mentions the pair in pitches and free talk", async () => {
+    const brain = new HostBrain(undefined, { random: () => 0.1 });
+    expect(brain.pitchTemplate(serum, pairCtx)).toContain("ครีมกันแดด");
+    const lines = new Set<string>();
+    const b2 = new HostBrain();
+    for (let i = 0; i < 60; i++) lines.add((await b2.freeTalk(serum, { ...pairCtx, recent: [...lines] })).text);
+    expect([...lines].some((t) => t.includes("ครีมกันแดด") && t.includes("เซรั่ม"))).toBe(true);
+  });
+  it("skips pairs that are out of stock", () => {
+    const brain = new HostBrain(undefined, { random: () => 0.1 });
+    expect(brain.pitchTemplate(serum, { ...pairCtx, products: [serum, { ...cream, stock: 0 }] })).not.toContain("ครีมกันแดด");
+  });
+});

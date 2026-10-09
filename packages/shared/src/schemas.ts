@@ -14,6 +14,7 @@ export const productInput = z.object({
   highlights: z.array(z.string().min(1)).default([]),
   specs: z.record(z.string()).default({}),
   qa: z.array(z.object({ question: z.string().trim().min(1).max(200), answer: z.string().trim().min(1).max(500) })).max(30).default([]),
+  pairsWith: z.array(z.string()).max(5).default([]),
   status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("ACTIVE"),
 });
 

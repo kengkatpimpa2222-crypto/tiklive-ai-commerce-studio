@@ -8,7 +8,7 @@ import {
 } from "@tlai/compliance";
 import { formatBaht, type FaqEntry, type HostCharacter, type Product, type ProductQa, type Promotion } from "@tlai/shared";
 import type { LlmProvider } from "./llm.js";
-import { nextTalk, pitchLines, spaced, voiceOf, type Rng, type TalkKind } from "./variety.js";
+import { nextTalk, pairsOf, pitchLines, spaced, voiceOf, type Rng, type TalkKind } from "./variety.js";
 
 export interface BrainContext {
   character: HostCharacter;
@@ -84,7 +84,7 @@ function promosFor(p: Product, promos: Promotion[]): Promotion[] {
 }
 
 /** Facts the host may state about a product, as a compact block for prompts and templates. */
-export function productFacts(p: Product, promos: Promotion[]): string {
+export function productFacts(p: Product, promos: Promotion[], lineup: readonly Product[] = []): string {
   const lines = [
     `ชื่อ: ${p.name}`,
     `ราคา: ${formatBaht(p.price)}${p.compareAtPrice ? ` (ราคาปกติ ${formatBaht(p.compareAtPrice)})` : ""}`,
@@ -94,6 +94,7 @@ export function productFacts(p: Product, promos: Promotion[]): string {
     ...Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`),
     ...promosFor(p, promos).map((x) => `โปรโมชั่น: ${x.title} - ${x.detail}`),
     ...(p.qa ?? []).map((x) => `ถาม: ${x.question} ตอบ: ${x.answer}`),
+    ...pairsOf(p, lineup).map((x) => `ใช้คู่กับ: ${x.name} ราคา ${formatBaht(x.price)}`),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -136,6 +137,7 @@ const TALK_TOPIC: Record<TalkKind, string> = {
   faq: "เล่าข้อมูลร้านสักเรื่อง เช่น การส่ง การชำระเงิน หรือการเปลี่ยนคืน",
   assistant: "บอกสั้น ๆ ว่าตัวเองเป็นผู้ช่วย AI ของร้าน พร้อมตอบคำถาม",
   teaser: "ชวนให้รอดูสินค้าชิ้นถัดไป",
+  pair: "แนะนำสินค้าที่ร้านจับคู่ไว้ว่าใช้คู่กับสินค้าบนจอ (บรรทัด ใช้คู่กับ) พร้อมราคา",
 };
 
 const recentBlock = (ctx: BrainContext, n = 12) => {
@@ -173,7 +175,7 @@ export class HostBrain {
         { role: "system", content: systemPrompt(ctx) },
         {
           role: "user",
-          content: `ข้อมูลสินค้า:\n${productFacts(product, ctx.promotions)}\n\nแนะนำสินค้านี้ในไลฟ์ด้วยคำพูดของคุณเอง 4-6 ประโยคสั้น ๆ เล่าให้น่าสนใจเหมือนคุยกับเพื่อน จบด้วยการชวนกดตะกร้าอย่างสุภาพ${recentBlock(ctx)}`,
+          content: `ข้อมูลสินค้า:\n${productFacts(product, ctx.promotions, ctx.products)}\n\nแนะนำสินค้านี้ในไลฟ์ด้วยคำพูดของคุณเอง 4-6 ประโยคสั้น ๆ เล่าให้น่าสนใจเหมือนคุยกับเพื่อน ถ้ามีบรรทัด "ใช้คู่กับ" ให้แนะนำสินค้านั้นสั้น ๆ หนึ่งประโยค จบด้วยการชวนกดตะกร้าอย่างสุภาพ${recentBlock(ctx)}`,
         },
       ], { temperature: 0.9, maxTokens: 400 })
       .catch(() => "");
@@ -209,7 +211,7 @@ export class HostBrain {
     const template = own ? matchParticle(own.answer, c) : faqOnly ? matchParticle(faq.answer, c) : this.answerTemplate(question, product, ctx);
     if (!this.llm) return this.guard(template, "template", ctx, product, template);
     const facts = [
-      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
+      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions, ctx.products)),
       ...(ctx.faqs ?? []).map((f) => `ข้อมูลร้าน (${f.topic}): ${f.answer}`),
     ].join("\n---\n");
     const text = await this.llm
@@ -242,7 +244,7 @@ export class HostBrain {
     if (!this.llm) return this.guard(template, "template", ctx, product, template);
     // With an AI provider the host composes every line itself; the template is only the fallback.
     const facts = [
-      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions)),
+      ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions, ctx.products)),
       ...(talk.kind === "faq" ? (ctx.faqs ?? []).map((f) => `ข้อมูลร้าน (${f.topic}): ${f.answer}`) : []),
       ...(talk.kind === "lineup" || talk.kind === "teaser" ? [`สินค้าในไลฟ์วันนี้: ${ctx.products.filter((p) => p.status === "ACTIVE").map((p) => p.name).join(", ")}`] : []),
     ].join("\n---\n");
@@ -276,7 +278,7 @@ export class HostBrain {
   }
 
   pitchTemplate(p: Product, ctx: BrainContext): string {
-    return pitchLines(p, promosFor(p, ctx.promotions), voiceOf(ctx.character), this.rng).join("\n");
+    return pitchLines(p, promosFor(p, ctx.promotions), voiceOf(ctx.character), this.rng, pairsOf(p, ctx.products)).join("\n");
   }
 
   answerTemplate(q: string, p: Product | undefined, ctx: BrainContext): string {
@@ -304,6 +306,10 @@ export class HostBrain {
       return promos.length
         ? `ตอนนี้มีโปร ${spaced(promos.map((x) => `${x.title} ${x.detail}`).join(" และ "))}${end(c)}`
         : `สำหรับ${p.name} ตอนนี้ยังไม่มีโปรเพิ่มเติม${end(c)} ราคา ${formatBaht(p.price)}${end(c)}`;
+    }
+    if (/คู่กับ|ใช้คู่|ซื้อคู่|เข้ากับ|ใช้กับอะไร|ซื้ออะไรเพิ่ม/.test(q)) {
+      const pairs = pairsOf(p, ctx.products);
+      if (pairs.length) return `${p.name} ใช้คู่กับ ${pairs.map((x) => `${x.name} ราคา ${formatBaht(x.price)}`).join(" และ ")}${end(c)} ดูได้ในตะกร้าเลย${endQ(c)}`;
     }
     if (/มีของ|หมด|สต็อก|เหลือ|พร้อมส่ง/i.test(q)) {
       return p.stock > 0 ? `${p.name} มีสินค้า${end(c)} กดสั่งที่ตะกร้าได้เลย${end(c)}` : `${p.name} หมดชั่วคราว${end(c)} ขออภัย${endQ(c)}`;

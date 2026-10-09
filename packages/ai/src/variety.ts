@@ -48,7 +48,12 @@ export function pickFresh(candidates: string[], recent: readonly string[], rng: 
 
 // ---------- pitch ----------
 
-export function pitchLines(p: Product, promos: Promotion[], v: VoiceBits, rng: Rng): string[] {
+/** Products the seller paired with `p` that are in this LIVE and in stock. */
+export function pairsOf(p: Product, lineup: readonly Product[]): Product[] {
+  return (p.pairsWith ?? []).flatMap((id) => lineup.filter((x) => x.id === id && x.id !== p.id && x.stock > 0 && x.status === "ACTIVE"));
+}
+
+export function pitchLines(p: Product, promos: Promotion[], v: VoiceBits, rng: Rng, pairs: readonly Product[] = []): string[] {
   const { e, q } = v;
   const name = p.name;
   const opener = shuffle(
@@ -78,7 +83,19 @@ export function pitchLines(p: Product, promos: Promotion[], v: VoiceBits, rng: R
       : `ตอนนี้สินค้าหมดชั่วคราว${e} กดติดตามร้านไว้เพื่อดูรอบถัดไปได้${e}`;
   // Not every pitch needs the description; alternate so repeats of the same product sound different.
   const desc = p.description && rng() < 0.6 ? p.description : "";
-  return [opener, desc, ...highlights, spec ? `${spec[0]}คือ ${spaced(spec[1])}${e}` : "", price, ...promoLines, closer].filter(Boolean);
+  const pl = pairLines(p, pairs, v);
+  const pair = pl.length && rng() < 0.7 ? pl[Math.floor(rng() * pl.length)]! : "";
+  return [opener, desc, ...highlights, spec ? `${spec[0]}คือ ${spaced(spec[1])}${e}` : "", price, ...promoLines, pair, closer].filter(Boolean);
+}
+
+/** Ways to suggest a paired product, with its real price. */
+export function pairLines(p: Product, pairs: readonly Product[], v: VoiceBits): string[] {
+  const { e, q } = v;
+  return pairs.flatMap((x) => [
+    `ใครเอา${p.name} ใช้คู่กับ${x.name}ได้ด้วย${e} ${x.name} ราคา ${formatBaht(x.price)}${e}`,
+    `${p.name}เข้ากันดีกับ${x.name}${e} ดูในตะกร้าได้เลย${q}`,
+    `ร้านแนะนำให้ใช้${p.name}คู่กับ${x.name}${e} ${x.name} อยู่ในตะกร้าเหมือนกัน${e}`,
+  ]);
 }
 
 // ---------- free talk ----------
@@ -92,7 +109,7 @@ export interface TalkContext {
   hour: number;
 }
 
-export type TalkKind = "highlight" | "spec" | "price" | "cta" | "invite" | "describe" | "promo" | "welcome" | "lineup" | "faq" | "assistant" | "teaser";
+export type TalkKind = "highlight" | "spec" | "price" | "cta" | "invite" | "describe" | "promo" | "welcome" | "lineup" | "faq" | "assistant" | "teaser" | "pair";
 
 /** Every kind of thing the host can say between products, with several phrasings each. */
 export function talkCandidates(t: TalkContext, v: VoiceBits): Record<TalkKind, string[]> {
@@ -100,7 +117,7 @@ export function talkCandidates(t: TalkContext, v: VoiceBits): Record<TalkKind, s
   const p = t.product;
   const others = t.lineup.filter((x) => x.id !== p?.id);
   const greet = t.hour < 11 ? "สวัสดีตอนเช้า" : t.hour < 16 ? "สวัสดีตอนบ่าย" : t.hour < 21 ? "สวัสดีตอนเย็น" : "สวัสดีทุกคนที่ยังไม่นอน";
-  const out: Record<TalkKind, string[]> = { highlight: [], spec: [], price: [], cta: [], invite: [], describe: [], promo: [], welcome: [], lineup: [], faq: [], assistant: [], teaser: [] };
+  const out: Record<TalkKind, string[]> = { highlight: [], spec: [], price: [], cta: [], invite: [], describe: [], promo: [], welcome: [], lineup: [], faq: [], assistant: [], teaser: [], pair: [] };
   if (p) {
     for (const h of p.highlights) {
       out.highlight.push(
@@ -133,6 +150,7 @@ export function talkCandidates(t: TalkContext, v: VoiceBits): Record<TalkKind, s
       `ใช้${p.name}แล้วเป็นยังไง มีคำถามตรงไหน พิมพ์มาคุยกันได้${e}`,
     );
     if (p.description) out.describe.push(`${p.name} ${spaced(p.description)}${e}`, `เล่าเพิ่มอีกนิด${e} ${spaced(p.description)}${e}`);
+    out.pair.push(...pairLines(p, pairsOf(p, t.lineup), v));
     if (others.length) out.teaser.push(`เดี๋ยวต่อด้วย${others[0]!.name}${e}`, `นอกจาก${p.name} วันนี้ยังมี${others.map((x) => x.name).slice(0, 2).join(" กับ ")}ด้วย${e}`);
   } else {
     out.invite.push(`ใครสนใจสินค้าตัวไหน พิมพ์ชื่อสินค้ามาได้เลย${q}`, `อยากให้${host}แนะนำตัวไหน พิมพ์บอกได้เลย${q}`);
@@ -156,7 +174,7 @@ export function talkCandidates(t: TalkContext, v: VoiceBits): Record<TalkKind, s
   return out;
 }
 
-const WEIGHTS: Record<TalkKind, number> = { highlight: 3, spec: 2, price: 2, cta: 2, invite: 2, describe: 1.5, promo: 1.5, welcome: 1, lineup: 1, faq: 1.5, assistant: 0.5, teaser: 1 };
+const WEIGHTS: Record<TalkKind, number> = { highlight: 3, spec: 2, price: 2, cta: 2, invite: 2, describe: 1.5, promo: 1.5, welcome: 1, lineup: 1, faq: 1.5, assistant: 0.5, teaser: 1, pair: 1.5 };
 
 /**
  * Picks the next filler line: a different kind from the last couple of lines,

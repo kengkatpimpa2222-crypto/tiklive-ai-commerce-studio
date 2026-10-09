@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { ImageUpload } from "../lib/ImageUpload";
 import { useData } from "../lib/useData";
 
-const emptyProduct = { sku: "", name: "", description: "", price: "", compareAtPrice: "", stock: "", category: "", highlights: "", specs: "", imageUrl: "", qa: [] as ProductQa[] };
+const emptyProduct = { sku: "", name: "", description: "", price: "", compareAtPrice: "", stock: "", category: "", highlights: "", specs: "", imageUrl: "", qa: [] as ProductQa[], pairsWith: [] as string[] };
 
 export function CatalogPage() {
   const [products, reload] = useData<Product[]>("/products", []);
@@ -28,7 +28,7 @@ export function CatalogPage() {
         sku: String(d.sku || ""), name: String(d.name ?? ""), description: String(d.description ?? ""),
         price: d.price !== undefined ? String(d.price) : "", compareAtPrice: d.compareAtPrice !== undefined ? String(d.compareAtPrice) : "",
         stock: "", category: String(d.category ?? ""), imageUrl: String(d.imageUrl ?? ""),
-        highlights: d.highlights.join("\n"), specs: Object.entries(d.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: [],
+        highlights: d.highlights.join("\n"), specs: Object.entries(d.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: [], pairsWith: [],
       });
       setImp({ input: "", busy: false, warnings: r.warnings, needsText: false, msg: r.via === "llm" ? "AI กรอกข้อมูลและเขียนจุดขายให้แล้ว ตรวจให้ถูกต้อง ใส่ SKU และสต็อก แล้วกดบันทึก" : "กรอกข้อมูลเบื้องต้นให้แล้ว ตรวจ ใส่ SKU และสต็อก แล้วกดบันทึก (เปิดสมอง AI จะได้จุดขายที่พร้อมพูดในไลฟ์)" });
     } catch (e) {
@@ -42,7 +42,7 @@ export function CatalogPage() {
     setF({
       sku: p.sku, name: p.name, description: p.description, price: String(p.price), compareAtPrice: p.compareAtPrice ? String(p.compareAtPrice) : "",
       stock: String(p.stock), category: p.category, highlights: p.highlights.join("\n"), imageUrl: p.imageUrl ?? "",
-      specs: Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: p.qa ?? [],
+      specs: Object.entries(p.specs).map(([k, v]) => `${k}: ${v}`).join("\n"), qa: p.qa ?? [], pairsWith: p.pairsWith ?? [],
     });
   };
 
@@ -53,6 +53,7 @@ export function CatalogPage() {
       imageUrl: f.imageUrl || undefined,
       highlights: f.highlights.split("\n").map((s) => s.trim()).filter(Boolean),
       specs: Object.fromEntries(f.specs.split("\n").map((l) => l.split(/:(.*)/s).map((s) => s.trim())).filter(([k, v]) => k && v)),
+      pairsWith: f.pairsWith,
       qa: f.qa.map((x) => ({ question: x.question.trim(), answer: x.answer.trim() })).filter((x) => x.question && x.answer),
     };
     try {
@@ -171,6 +172,25 @@ export function CatalogPage() {
         <textarea placeholder={"จุดเด่นที่ตรวจสอบแล้ว (บรรทัดละข้อ)"} value={f.highlights} onChange={(e) => setF({ ...f, highlights: e.target.value })} />
         <textarea placeholder={"ข้อมูลจำเพาะ เช่น\nขนาด: 30 ml\nวัสดุ: สแตนเลส"} value={f.specs} onChange={(e) => setF({ ...f, specs: e.target.value })} />
         <QaEditor value={f.qa} onChange={(qa) => setF({ ...f, qa })} />
+        {products.some((p) => p.id !== editing) && (
+          <div className="pair-picks">
+            <strong>สินค้าที่ใช้คู่กัน</strong>
+            <p className="note">ตัวละครจะแนะนำสินค้าที่เลือกไว้ตอนพูดถึงสินค้านี้ พร้อมราคาจริง (สูงสุด 5 ชิ้น)</p>
+            {products
+              .filter((p) => p.id !== editing)
+              .map((p) => (
+                <label key={p.id} className="inline">
+                  <input
+                    type="checkbox"
+                    checked={f.pairsWith.includes(p.id)}
+                    disabled={!f.pairsWith.includes(p.id) && f.pairsWith.length >= 5}
+                    onChange={(e) => setF({ ...f, pairsWith: e.target.checked ? [...f.pairsWith, p.id] : f.pairsWith.filter((x) => x !== p.id) })}
+                  />
+                  {p.name}
+                </label>
+              ))}
+          </div>
+        )}
         <p className="note">AI จะพูดและตอบคำถามจากข้อมูลในหน้านี้เท่านั้น ถ้าไม่มีข้อมูลจะบอกผู้ชมว่าให้ทีมงานตอบ</p>
         {err && <div className="msg">⚠ {err}</div>}
         <div className="row">
