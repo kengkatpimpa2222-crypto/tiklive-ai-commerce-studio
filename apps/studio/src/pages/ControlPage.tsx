@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, connect } from "../lib/api";
 import { CaptureToggle } from "../lib/CaptureToggle";
 import { useData } from "../lib/useData";
+import { SchedulePanel } from "./SchedulePanel";
 
 interface DirectorState {
   sessionId: string | null;
@@ -66,9 +67,15 @@ export function ControlPage() {
   const [autoMinutes, setAutoMinutes] = useState(60);
 
   const [serviceStatus, setServiceStatus] = useState("");
+  const [scheduleNotice, setScheduleNotice] = useState("");
   useEffect(() => {
     const link = connect("control", (m) => {
       if (m.type === "service_status") setServiceStatus(m.message);
+      if (m.type === "schedule_notice") {
+        setScheduleNotice(m.message);
+        reloadAuto();
+        reloadSessions();
+      }
       if (m.type === "state") {
         setState(m.state);
         reloadQuestions();
@@ -176,6 +183,12 @@ export function ControlPage() {
               </button>
             </div>
             <small className="muted">กดเริ่มไลฟ์ใน TikTok LIVE Studio ด้วยตัวเอง แล้วเปิดคอมเมนต์ไว้ คัดลอกคำถามลูกค้าเมื่อสะดวก AI จะตอบเอง</small>
+          </div>
+        )}
+        {!live && <SchedulePanel characters={characters} />}
+        {scheduleNotice && (
+          <div className="schedule-notice" onClick={() => setScheduleNotice("")}>
+            ⏰ {scheduleNotice}
           </div>
         )}
         {live && auto.active && (

@@ -233,7 +233,16 @@ kbd { background: #222736; border: 1px solid var(--line); border-bottom-width: 2
 .caption.above-ticker { bottom: 6cqh; }
 .qa-editor { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 .qa-editor > button { align-self: flex-start; }
-.qa-row { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
+.qa-row { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
 .qa-row input { grid-column: 1; }
-.qa-row textarea { grid-column: 1; min-height: 44px; }
+.qa-row textarea { grid-column: 1; min-height: 56px; }
 .qa-row button { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+.schedule-card { margin: 0 0 12px; padding: 12px; border-radius: 10px; background: #141a26; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.schedule-card p { margin: 0; font-size: 13px; color: var(--ok); }
+.schedule-card > button { align-self: flex-start; }
+.schedule-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; font-size: 13px; }
+.schedule-row label { flex-direction: row; align-items: center; gap: 6px; color: inherit; }
+.schedule-row small { grid-column: 1 / -1; }
+.day-picks { display: flex; gap: 4px; flex-wrap: wrap; }
+.day-picks button { padding: 4px 8px; min-width: 36px; }
+.schedule-notice { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #3a2a10; border: 1px solid #a57a2a; font-size: 13px; cursor: pointer; }

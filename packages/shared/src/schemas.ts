@@ -122,6 +122,14 @@ export const faqInput = z.object({
   answer: z.string().min(1).max(400),
 });
 
+export const scheduleInput = z.object({
+  enabled: z.boolean().default(true),
+  days: z.array(z.number().int().min(0).max(6)).min(1).max(7).transform((d) => [...new Set(d)].sort()),
+  start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "เวลาต้องเป็นแบบ 20:00"),
+  minutes: z.number().int().min(15).max(720),
+  characterId: z.string().optional(),
+});
+
 export const stageSettingsInput = z.object({
   shopName: z.string().max(40),
   backgroundImage: z.string().max(500).optional(),

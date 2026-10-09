@@ -64,6 +64,23 @@ export interface FaqEntry {
   answer: string;
 }
 
+/** A LIVE the autopilot starts by itself on chosen days, e.g. every day 20:00 for 2 hours. */
+export interface LiveSchedule {
+  id: string;
+  enabled: boolean;
+  /** Days of the week, 0 = Sunday ... 6 = Saturday. */
+  days: number[];
+  /** Local start time "HH:MM". */
+  start: string;
+  minutes: number;
+  /** Host to put on air; the main host when unset. */
+  characterId?: string;
+  /** Local date "YYYY-MM-DD" of the last start attempt, so a schedule runs at most once a day. */
+  lastRunDate?: string;
+  /** What happened last time, shown to the seller. */
+  lastResult?: string;
+}
+
 export interface StageSettings {
   shopName: string;
   /** Uploaded or remote image shown behind the host (cover). */

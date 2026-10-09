@@ -367,3 +367,39 @@ describe("product Q&A", () => {
     expect(JSON.stringify(json(r2).preflight.items.filter((i: { ok: boolean }) => !i.ok))).toContain("กระบอกน้ำ");
   });
 });
+
+describe("scheduled LIVE", () => {
+  it("starts the autopilot at the set time once, and reports why when it cannot", async () => {
+    const s = await buildServer({ dataFile: null, freeTalkAfterMs: 50, scheduleTickMs: 0, notify: () => undefined });
+    try {
+      const bad = await s.app.inject({ method: "POST", url: "/api/schedules", payload: { days: [1], start: "25:00", minutes: 60 } });
+      expect(bad.statusCode).toBe(400);
+      const today = new Date(2026, 9, 9, 20, 1);
+      const r = await s.app.inject({ method: "POST", url: "/api/schedules", payload: { days: [today.getDay(), today.getDay()], start: "20:00", minutes: 60 } });
+      expect(r.statusCode).toBe(201);
+      const sched = json(r);
+      expect(sched.days).toEqual([today.getDay()]);
+
+      s.runSchedules(new Date(2026, 9, 9, 19, 30));
+      expect(json(await s.app.inject({ method: "GET", url: "/api/autopilot" })).active).toBe(false);
+      s.runSchedules(today);
+      const auto = json(await s.app.inject({ method: "GET", url: "/api/autopilot" }));
+      expect(auto.active).toBe(true);
+      expect(json(await s.app.inject({ method: "GET", url: `/api/schedules/${sched.id}` }))).toMatchObject({ lastRunDate: "2026-10-09", lastResult: expect.stringContaining("เริ่มแล้ว") });
+
+      // Same day again: nothing new starts even after the LIVE ends.
+      await s.app.inject({ method: "POST", url: `/api/live/${auto.sessionId}/end` });
+      s.runSchedules(new Date(2026, 9, 9, 20, 3));
+      expect(json(await s.app.inject({ method: "GET", url: "/api/autopilot" })).active).toBe(false);
+
+      // Next day, with nothing on sale: it records why it did not start.
+      for (const p of json(await s.app.inject({ method: "GET", url: "/api/products" }))) await s.app.inject({ method: "PATCH", url: `/api/products/${p.id}`, payload: { status: "DRAFT" } });
+      const tomorrow = new Date(2026, 9, 10, 20, 0);
+      await s.app.inject({ method: "PATCH", url: `/api/schedules/${sched.id}`, payload: { days: [tomorrow.getDay()] } });
+      s.runSchedules(tomorrow);
+      expect(json(await s.app.inject({ method: "GET", url: `/api/schedules/${sched.id}` })).lastResult).toContain("เริ่มไม่ได้");
+    } finally {
+      await s.app.close();
+    }
+  });
+});

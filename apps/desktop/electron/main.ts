@@ -193,6 +193,9 @@ app.whenReady().then(async () => {
       dataFile: join(app.getPath("userData"), "studio.json"),
       staticDir: studioDir(),
       capture: captureControl,
+      notify: (title, body) => {
+        if (Notification.isSupported()) new Notification({ title, body }).show();
+      },
       ...providersFromEnv(),
     });
     server = built.app;
@@ -204,10 +207,8 @@ app.whenReady().then(async () => {
     return;
   }
   updates = setupAutoUpdate({
-    isLive: async () => {
-      const r = await server?.inject({ method: "GET", url: "/api/director" });
-      return !!r && (JSON.parse(r.body) as { status: string }).status !== "idle";
-    },
+    // A scheduled LIVE coming up counts as live, so an update never restarts the app just before it.
+    isLive: async () => (await isLive()) || (await scheduledSoon()),
     window: () => control,
   });
   buildMenu();
@@ -221,17 +222,30 @@ app.whenReady().then(async () => {
  * While a LIVE runs nobody may be at the PC: keep the screen and PC awake, and bring the
  * stage window back if it was closed by accident (it is what TikTok LIVE Studio captures).
  */
+async function isLive(): Promise<boolean> {
+  const r = await server?.inject({ method: "GET", url: "/api/director" }).catch(() => null);
+  return !!r && (JSON.parse(r.body) as { status: string }).status !== "idle";
+}
+
+/** A scheduled LIVE starts within the next 30 minutes. */
+async function scheduledSoon(): Promise<boolean> {
+  const r = await server?.inject({ method: "GET", url: "/api/schedules/next" }).catch(() => null);
+  const at = r ? (JSON.parse(r.body) as { at: string | null }).at : null;
+  return !!at && new Date(at).getTime() - Date.now() < 30 * 60_000;
+}
+
 function watchLive(): void {
   let blocker: number | null = null;
   setInterval(async () => {
-    const r = await server?.inject({ method: "GET", url: "/api/director" }).catch(() => null);
-    const live = !!r && (JSON.parse(r.body) as { status: string }).status !== "idle";
+    const onAir = await isLive();
+    // Also stay awake ahead of a scheduled LIVE, or the PC may be asleep when it should start.
+    const live = onAir || (await scheduledSoon());
     if (live && blocker === null) blocker = powerSaveBlocker.start("prevent-display-sleep");
     if (!live && blocker !== null) {
       powerSaveBlocker.stop(blocker);
       blocker = null;
     }
-    if (live && !stage && control) openStage();
+    if (onAir && !stage && control) openStage();
   }, 5000);
 }
 

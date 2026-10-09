@@ -14,6 +14,7 @@ import {
   manualStatsInput,
   newId,
   productInput,
+  scheduleInput,
   promotionInput,
   questionInput,
   sceneInput,
@@ -32,6 +33,7 @@ import { dirname, join, resolve } from "node:path";
 import type { WebSocket } from "ws";
 import { z, type ZodTypeAny } from "zod";
 import { LiveDirector } from "./director.js";
+import { dueSchedule, HEADS_UP_MS, localDate, nextRun } from "./schedule.js";
 import { Store, type Collection } from "./store.js";
 
 export interface ServerOptions {
@@ -53,6 +55,10 @@ export interface ServerOptions {
   logger?: boolean;
   /** Desktop-only comment capture (clipboard watch + hotkeys), owned by the Electron main process. */
   capture?: CaptureControl;
+  /** Desktop notification for scheduled LIVE reminders and results. */
+  notify?: (title: string, body: string) => void;
+  /** How often scheduled LIVEs are checked; 0 turns the timer off (tests call runSchedules). */
+  scheduleTickMs?: number;
 }
 
 export interface CaptureState {
@@ -76,7 +82,7 @@ export function providersFromEnv(env: NodeJS.ProcessEnv = process.env) {
   return { llm, tts, tiktok };
 }
 
-export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyInstance; store: Store; director: LiveDirector }> {
+export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyInstance; store: Store; director: LiveDirector; runSchedules: (now?: Date) => void }> {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 32 * 1024 * 1024 });
   await app.register(cors, { origin: [/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/] });
   await app.register(websocket);
@@ -577,11 +583,11 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
 
   // ---- autopilot: one button starts a complete LIVE that runs and ends on its own ----
   app.get("/api/autopilot", async () => autopilotView());
-  app.post("/api/autopilot", async (req, reply) => {
-    const { minutes, characterId } = parse(z.object({ minutes: z.number().int().min(0).max(720).default(0), characterId: z.string().optional() }), req.body ?? {});
-    if (store.list("sessions").some((x) => x.status === "LIVE")) return reply.code(409).send({ error: "มีไลฟ์กำลังดำเนินอยู่" });
+  type AutopilotResult = { ok: true; session: LiveSession } | { ok: false; code: number; body: { error: string; preflight?: unknown } };
+  const startAutopilot = (minutes: number, characterId?: string): AutopilotResult => {
+    if (store.list("sessions").some((x) => x.status === "LIVE")) return { ok: false, code: 409, body: { error: "มีไลฟ์กำลังดำเนินอยู่" } };
     const products = store.list("products").filter((p) => p.status === "ACTIVE");
-    if (!products.length) return reply.code(422).send({ error: "ยังไม่มีสินค้าที่เปิดขาย เพิ่มสินค้าก่อน" });
+    if (!products.length) return { ok: false, code: 422, body: { error: "ยังไม่มีสินค้าที่เปิดขาย เพิ่มสินค้าก่อน" } };
     const chars = store.list("characters");
     // The host the seller picked as main goes on air; otherwise a realistic photo host if one is set up; otherwise the first.
     const character =
@@ -589,7 +595,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       (store.db.mainCharacterId && store.get("characters", store.db.mainCharacterId)) ||
       chars.find((c) => c.look.style === "photo" && c.look.photo) ||
       chars[0];
-    if (!character) return reply.code(422).send({ error: "ยังไม่มีตัวละคร" });
+    if (!character) return { ok: false, code: 422, body: { error: "ยังไม่มีตัวละคร" } };
     const now = new Date();
     const s: LiveSession = {
       id: newId("live"),
@@ -604,7 +610,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const r = preflightFor(s);
     if (!r.ok) {
       store.remove("sessions", s.id);
-      return reply.code(422).send({ error: "ตรวจสอบไม่ผ่าน เริ่มไลฟ์ไม่ได้", preflight: r });
+      return { ok: false, code: 422, body: { error: "ตรวจสอบไม่ผ่าน เริ่มไลฟ์ไม่ได้", preflight: r } };
     }
     director.qaMode = "auto";
     opts.capture?.set({ clipboardWatch: true });
@@ -616,8 +622,48 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
         if (live?.status === "LIVE") director.finish(() => endSession(live));
       }, minutes * 60_000);
     }
-    return reply.code(201).send({ session: store.get("sessions", s.id), ...autopilotView() });
+    return { ok: true, session: store.get("sessions", s.id)! };
+  };
+  app.post("/api/autopilot", async (req, reply) => {
+    const { minutes, characterId } = parse(z.object({ minutes: z.number().int().min(0).max(720).default(0), characterId: z.string().optional() }), req.body ?? {});
+    const r = startAutopilot(minutes, characterId);
+    if (!r.ok) return reply.code(r.code).send(r.body);
+    return reply.code(201).send({ session: r.session, ...autopilotView() });
   });
+
+  // ---- scheduled LIVEs: the autopilot starts on its own at set times; going live in TikTok stays manual ----
+  const notice = (title: string, body: string) => {
+    broadcast(controls, { type: "schedule_notice", message: `${title}: ${body}` });
+    opts.notify?.(title, body);
+  };
+  const headsUpSent = new Set<string>();
+  const runSchedules = (now = new Date()) => {
+    const schedules = store.list("schedules");
+    const next = nextRun(schedules, now);
+    if (next) {
+      const key = `${next.schedule.id}@${next.at.toISOString()}`;
+      const until = next.at.getTime() - now.getTime();
+      if (until > 0 && until <= HEADS_UP_MS && !headsUpSent.has(key)) {
+        headsUpSent.add(key);
+        notice("อีกไม่กี่นาทีถึงเวลาไลฟ์", `ไลฟ์อัตโนมัติจะเริ่ม ${next.schedule.start} น. เปิด TikTok LIVE Studio แล้วกด Go LIVE ให้พร้อม`);
+      }
+    }
+    const due = dueSchedule(schedules, now);
+    if (!due) return;
+    const r = startAutopilot(due.minutes, due.characterId);
+    const result = r.ok ? `เริ่มแล้ว ${now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.` : `เริ่มไม่ได้: ${r.body.error}`;
+    store.update("schedules", due.id, { lastRunDate: localDate(now), lastResult: result });
+    store.flush();
+    if (r.ok) notice("เริ่มไลฟ์ตามเวลาแล้ว", "ตัวละครเริ่มพูดแล้ว ตรวจว่า TikTok LIVE Studio กำลังไลฟ์อยู่ และคอยดูแลไลฟ์ตลอด");
+    else notice("ไลฟ์ตามเวลาเริ่มไม่ได้", r.body.error);
+  };
+  app.get("/api/schedules/next", async () => {
+    const n = nextRun(store.list("schedules"), new Date());
+    return n ? { scheduleId: n.schedule.id, at: n.at.toISOString(), minutes: n.schedule.minutes } : { scheduleId: null, at: null, minutes: null };
+  });
+  crud("schedules", "schedules", scheduleInput, "sched");
+  const scheduleTimer = opts.scheduleTickMs === 0 ? null : setInterval(() => runSchedules(), opts.scheduleTickMs ?? 15_000);
+
   app.post<{ Params: { id: string } }>("/api/live/:id/stats", async (req, reply) => {
     const s = store.get("sessions", req.params.id);
     if (!s) return reply.code(404).send({ error: "not found" });
@@ -708,11 +754,12 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   });
   app.addHook("onClose", async () => {
     if (autopilot?.timer) clearTimeout(autopilot.timer);
+    if (scheduleTimer) clearInterval(scheduleTimer);
     await closeActiveStream();
     director.stop();
     store.flush();
   });
-  return { app, store, director };
+  return { app, store, director, runSchedules };
 }
 
 const IMPORT_UA = "TikLiveAIStudio/1.0 (product link preview; one request per pasted link)";

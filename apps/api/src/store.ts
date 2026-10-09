@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "
 import { dirname } from "node:path";
 import type { AiConfig } from "@tlai/ai";
 import type { AvatarServiceConfig } from "./avatarService.js";
-import type { FaqEntry, HostCharacter, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
+import type { FaqEntry, HostCharacter, LiveSchedule, LiveScript, LiveSession, Product, Promotion, Scene, StudioSettings, ViewerQuestion } from "@tlai/shared";
 import { defaultSettings, seedCharacters, seedFaqs, seedProducts, seedPromotions, seedScenes, seedScripts } from "./seed.js";
 
 export interface Db {
@@ -14,6 +14,7 @@ export interface Db {
   sessions: LiveSession[];
   questions: ViewerQuestion[];
   faqs: FaqEntry[];
+  schedules: LiveSchedule[];
   settings: StudioSettings;
   /** AI provider for the host's speech. Holds the API key, so it is never sent to the stage. */
   ai?: AiConfig;
@@ -35,6 +36,7 @@ const seed = (): Db => ({
   sessions: [],
   questions: [],
   faqs: structuredClone(seedFaqs),
+  schedules: [],
   settings: structuredClone(defaultSettings),
 });
 
