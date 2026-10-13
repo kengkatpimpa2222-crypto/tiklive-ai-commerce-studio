@@ -101,6 +101,8 @@ export class LiveDirector {
   private flash: FlashSale | null = null;
   private flashTimers: NodeJS.Timeout[] = [];
   private lastThanksAt = -Infinity;
+  /** When the product on screen was put there, for products with a set airtime. */
+  private productSince = 0;
   qaMode: QaMode = "auto";
   stageConnected = false;
   private readonly now: () => number;
@@ -184,6 +186,7 @@ export class LiveDirector {
   }
 
   showProduct(productId: string | null): void {
+    if (productId !== this.currentProductId) this.productSince = this.now();
     this.currentProductId = productId;
     const product = productId ? this.d.store.get("products", productId) ?? null : null;
     const promotions = this.d.store.list("promotions").filter((p) => p.active && (!product || p.productIds.length === 0 || p.productIds.includes(product.id)));
@@ -458,7 +461,10 @@ export class LiveDirector {
         const every = this.d.rotateEveryTurns ?? 4;
         const ctx = this.brainCtx();
         const lineup = ctx.products.filter((p) => p.status === "ACTIVE");
-        if (every > 0 && turn > 0 && turn % every === 0 && lineup.length > 1) {
+        // Products with a set airtime stay on screen for that long; others move on after a few lines.
+        const current = lineup.find((p) => p.id === this.currentProductId);
+        const due = current?.airMinutes ? this.now() - this.productSince >= current.airMinutes * 60_000 : every > 0 && turn > 0 && turn % every === 0;
+        if (due && lineup.length > 1) {
           // During a flash sale the sale product stays on screen and gets the pitches.
           if (this.flash) return void this.runAsync(() => this.pitch(this.flash!.productId, false, true));
           const i = lineup.findIndex((p) => p.id === this.currentProductId);

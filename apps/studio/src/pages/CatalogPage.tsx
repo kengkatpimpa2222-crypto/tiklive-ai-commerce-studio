@@ -37,6 +37,13 @@ export function CatalogPage() {
     }
   };
 
+  /** Swaps a product with its neighbour in the LIVE queue. */
+  const move = (i: number, dir: -1 | 1) => {
+    const ids = products.map((p) => p.id);
+    [ids[i], ids[i + dir]] = [ids[i + dir]!, ids[i]!];
+    void api("/products/order", { body: { ids } }).then(reload, (e: Error) => setErr(e.message));
+  };
+
   const edit = (p: Product) => {
     setEditing(p.id);
     setF({
@@ -71,18 +78,31 @@ export function CatalogPage() {
     <div className="page two-col">
       <div>
         <h1>สินค้า</h1>
+        <p className="note">ลำดับในตารางคือคิวในไลฟ์ ใช้ลูกศรเลื่อนขึ้นลง และตั้ง "เวลาพูด" ได้ว่าให้ตัวละครอยู่กับสินค้านั้นกี่นาทีก่อนไปตัวถัดไป</p>
         <table>
           <thead>
-            <tr><th /><th>SKU</th><th>ชื่อ</th><th>ราคา</th><th>สต็อก</th><th /></tr>
+            <tr><th>คิว</th><th /><th>SKU</th><th>ชื่อ</th><th>ราคา</th><th>สต็อก</th><th>เวลาพูด</th><th /></tr>
           </thead>
           <tbody>
-            {products.map((p) => (
+            {products.map((p, i) => (
               <tr key={p.id}>
+                <td className="queue-cell">
+                  <button disabled={i === 0} title="เลื่อนขึ้น" onClick={() => move(i, -1)}>↑</button>
+                  <button disabled={i === products.length - 1} title="เลื่อนลง" onClick={() => move(i, 1)}>↓</button>
+                </td>
                 <td>{p.imageUrl ? <img className="mini" src={p.imageUrl} alt="" /> : <span className="mini ph-mini">{p.name.slice(0, 1)}</span>}</td>
                 <td>{p.sku}</td>
                 <td>{p.name}</td>
                 <td>{p.price}{p.compareAtPrice ? <s> {p.compareAtPrice}</s> : null}</td>
                 <td>{p.stock}</td>
+                <td>
+                  <select value={p.airMinutes ?? 0} onChange={(e) => api(`/products/${p.id}`, { method: "PATCH", body: { airMinutes: Number(e.target.value) || null } }).then(reload)}>
+                    <option value={0}>อัตโนมัติ</option>
+                    {[2, 3, 5, 10, 15, 20, 30].map((m) => (
+                      <option key={m} value={m}>{m} นาที</option>
+                    ))}
+                  </select>
+                </td>
                 <td>
                   <button onClick={() => edit(p)}>แก้ไข</button>
                   <button onClick={() => api(`/products/${p.id}`, { method: "DELETE" }).then(reload)}>ลบ</button>

@@ -472,3 +472,14 @@ describe("backup", () => {
     expect((await ctx.app.inject({ method: "POST", url: "/api/backup/restore", payload: { hello: 1 } })).statusCode).toBe(400);
   });
 });
+
+describe("product queue order", () => {
+  it("reorders products and rejects incomplete lists", async () => {
+    const r = await ctx.app.inject({ method: "POST", url: "/api/products/order", payload: { ids: ["prod_tee", "prod_serum", "prod_bottle"] } });
+    expect(json(r).map((p: { id: string }) => p.id)).toEqual(["prod_tee", "prod_serum", "prod_bottle"]);
+    expect((await ctx.app.inject({ method: "POST", url: "/api/products/order", payload: { ids: ["prod_tee"] } })).statusCode).toBe(400);
+    const p = await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_tee", payload: { airMinutes: 5 } });
+    expect(json(p).airMinutes).toBe(5);
+    expect(json(await ctx.app.inject({ method: "PATCH", url: "/api/products/prod_tee", payload: { airMinutes: null } })).airMinutes).toBeUndefined();
+  });
+});

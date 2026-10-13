@@ -203,6 +203,16 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     app.delete<{ Params: { id: string } }>(`/api/${path}/:id`, async (req, reply) => (store.remove(k, req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: "not found" })));
   };
 
+  // The order of products is the LIVE's queue (autopilot and free-talk rotation follow it).
+  app.post("/api/products/order", async (req, reply) => {
+    const { ids } = parse(z.object({ ids: z.array(z.string()).min(1) }), req.body);
+    const all = store.list("products");
+    if (ids.length !== all.length || !ids.every((id) => all.some((p) => p.id === id))) return reply.code(400).send({ error: "รายการสินค้าไม่ครบ" });
+    const sorted = ids.map((id) => all.find((p) => p.id === id)!);
+    all.splice(0, all.length, ...sorted);
+    store.save();
+    return all;
+  });
   crud("products", "products", productInput, "prod");
   crud("promotions", "promotions", promotionInput, "promo");
   crud("scenes", "scenes", sceneInput, "scene");

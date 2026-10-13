@@ -38,6 +38,8 @@ export interface Product {
   qa?: ProductQa[];
   /** Other products the seller says go well with this one; the host suggests them together. */
   pairsWith?: string[];
+  /** Minutes the host stays on this product in free talk before moving on; unset = a few lines. */
+  airMinutes?: number;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
 }
 

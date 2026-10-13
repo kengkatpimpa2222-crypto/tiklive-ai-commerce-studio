@@ -186,3 +186,23 @@ describe("real orders", () => {
     expect(store.get("sessions", s.id)!.manualStats).toMatchObject({ orders: 3, gmv: 897 });
   });
 });
+
+describe("timed product queue", () => {
+  it("stays on a product for its set airtime, then moves to the next in queue order", async () => {
+    store.update("products", "prod_serum", { airMinutes: 3 });
+    director.start(makeSession());
+    director.showProduct("prod_serum");
+    const t0 = Date.now();
+    let leftAt = 0;
+    let next = "";
+    const orig = sent.push.bind(sent);
+    sent.push = (...cmds: StageCommand[]) => {
+      for (const c of cmds) if (!leftAt && c.type === "product" && c.product && c.product.id !== "prod_serum") [leftAt, next] = [Date.now() - t0, c.product.id];
+      return orig(...cmds);
+    };
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(next).toBe("prod_bottle");
+    expect(leftAt).toBeGreaterThanOrEqual(3 * 60 * 1000);
+    expect(leftAt).toBeLessThan(4 * 60 * 1000);
+  });
+});
