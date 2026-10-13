@@ -145,4 +145,5 @@ export const stageSettingsInput = z.object({
   bgmVolume: z.number().min(0).max(1),
   tickerText: z.string().max(200),
   lowStockAt: z.number().int().min(0).max(999),
+  sfxVolume: z.number().min(0).max(1),
 });

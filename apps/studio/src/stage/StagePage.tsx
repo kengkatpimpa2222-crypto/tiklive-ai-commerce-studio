@@ -5,6 +5,7 @@ import { connect } from "../lib/api";
 import { Avatar } from "./Avatar";
 import { PhotoAvatar } from "./PhotoAvatar";
 import { ServiceStream } from "./serviceAvatar";
+import { playSfx, type SfxKind } from "./sfx";
 import { SpeechEngine } from "./speech";
 
 const DEFAULT_CHARACTER: HostCharacter = {
@@ -84,6 +85,8 @@ export function StagePage() {
 
   // Background music: full level between lines, ducked under the host's voice, eased so it never jumps.
   const bgmVolume = settings?.bgmVolume ?? 0.3;
+  const sfxVolumeRef = useRef(0.5);
+  sfxVolumeRef.current = settings?.sfxVolume ?? 0.5;
   useEffect(() => {
     const a = bgmRef.current;
     if (!a || preview) return;
@@ -103,6 +106,8 @@ export function StagePage() {
   useEffect(() => {
     window.speechSynthesis?.getVoices();
     let captionTimer = 0;
+    let lastProductId: string | null = null;
+    const sfx = (kind: SfxKind) => !preview && playSfx(kind, sfxVolumeRef.current);
     const link = connect(preview ? "preview" : "stage", (cmd: StageCommand) => {
       const c = ctl.current;
       switch (cmd.type) {
@@ -117,6 +122,8 @@ export function StagePage() {
           setSettings(cmd.settings.stage);
           break;
         case "product":
+          if (cmd.product && lastProductId && cmd.product.id !== lastProductId) sfx("product");
+          lastProductId = cmd.product?.id ?? lastProductId;
           setProduct(cmd.product);
           setPromos(cmd.promotions);
           break;
@@ -124,12 +131,15 @@ export function StagePage() {
           setQuestion(cmd.question);
           break;
         case "flash_sale":
+          if (cmd.sale) sfx("sale");
           setSale(cmd.sale);
           break;
         case "order":
+          sfx("order");
           setOrder({ name: cmd.productName, until: Date.now() + 5000 });
           break;
         case "coupon":
+          sfx("coupon");
           setCoupon({ promo: cmd.promotion, until: Date.now() + 15_000 });
           break;
         case "emotion":

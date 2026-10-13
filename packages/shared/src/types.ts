@@ -104,6 +104,8 @@ export interface StageSettings {
   tickerText: string;
   /** Show "เหลือ N ชิ้น" on the product card when stock is at or below this; 0 turns it off. Uses the stock the seller entered. */
   lowStockAt: number;
+  /** Short sound effects (product change, sale start, code, order), 0..1; 0 turns them off. */
+  sfxVolume: number;
 }
 
 export interface StudioSettings {

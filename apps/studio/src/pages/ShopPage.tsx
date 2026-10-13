@@ -113,6 +113,7 @@ export function ShopPage() {
               </select>
               <span className="muted">ใช้ตัวเลขสต็อกที่ใส่ไว้ในหน้าสินค้า อัปเดตให้ตรงกับร้านจริงเสมอ (ห้ามใส่ตัวเลขหลอกเพื่อเร่งคนซื้อ)</span>
             </label>
+            <Slider label="เสียงประกอบ (ติ๊งตอนเปลี่ยนสินค้า เริ่มราคาพิเศษ โชว์โค้ด มีคนสั่ง) 0 = ปิด" min={0} max={1} step={0.05} value={stage.sfxVolume} onChange={(v) => change({ sfxVolume: v })} />
             <h3>เพลงพื้นหลัง</h3>
             <MusicUpload value={stage.bgmUrl} onChange={(url) => change({ bgmUrl: url })} />
             <Slider label="ความดังเพลง (ตอน AI พูด เพลงจะเบาลงเอง)" min={0} max={1} step={0.05} value={stage.bgmVolume} onChange={(v) => change({ bgmVolume: v })} />

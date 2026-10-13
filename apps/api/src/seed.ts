@@ -151,5 +151,5 @@ export const seedFaqs: FaqEntry[] = [
 ];
 
 export const defaultSettings: StudioSettings = {
-  stage: { shopName: "", backgroundDim: 0.25, avatarScale: 1, avatarX: 0, avatarY: 0, showCaptions: true, bgmVolume: 0.3, tickerText: "", lowStockAt: 0 },
+  stage: { shopName: "", backgroundDim: 0.25, avatarScale: 1, avatarX: 0, avatarY: 0, showCaptions: true, bgmVolume: 0.3, tickerText: "", lowStockAt: 0, sfxVolume: 0.5 },
 };
