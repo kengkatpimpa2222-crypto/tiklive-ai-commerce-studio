@@ -4,6 +4,7 @@ import websocket from "@fastify/websocket";
 import { AI_PRESETS, BLOCKED_IMPORT_HOSTS, createLlm, generateScript, importProduct, metaToText, parsePageMeta, HostBrain, OpenAICompatibleLlm, summarizeLive, type AiConfig, type LlmProvider, type LlmUsage } from "@tlai/ai";
 import { summaryCsv, summaryMarkdown } from "./export.js";
 import { hostPresets } from "./seed.js";
+import { importSheet } from "./sheetImport.js";
 import { DidClient, THAI_VOICES, defaultThaiVoice } from "./avatarService.js";
 import { DEFAULT_DISCLOSURE_LABEL, PROHIBITED_CAPABILITIES, runPreflight, UNSUPPORTED_TIKTOK_MESSAGE } from "@tlai/compliance";
 import {
@@ -249,6 +250,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
   const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
   const AUDIO_TYPES: Record<string, string> = { mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", wav: "audio/wav" };
   const MEDIA_TYPES = { ...IMAGE_TYPES, ...AUDIO_TYPES };
+  const IMAGE_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
   const memoryUploads = new Map<string, Buffer>();
   const uploadsDir = opts.dataFile ? join(dirname(opts.dataFile), "uploads") : null;
   const saveUpload = (buf: Buffer, ext: string): string => {
@@ -354,7 +356,7 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
       try {
         const img = new URL(meta.image);
         const { res, buf } = await fetchPage(img, "image/*", 5 * 1024 * 1024);
-        const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" } as Record<string, string>)[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
+        const ext = IMAGE_EXT[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
         if (res.ok && ext) imageUrl = saveUpload(buf, ext);
       } catch {
         /* no photo is fine */
@@ -362,6 +364,49 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     }
     const result = await importProduct(pageText, llm, { imageUrl, sku: meta.sku });
     return { ...result, source: u.hostname };
+  });
+
+  // ---- product list exported from TikTok Shop Seller Center (.xlsx/.csv) → preview, then add/update by SKU ----
+  app.post("/api/products/import-file", async (req, reply) => {
+    const { filename, dataBase64 } = parse(z.object({ filename: z.string().min(1).max(200), dataBase64: z.string().min(1) }), req.body);
+    const buf = Buffer.from(dataBase64.replace(/^data:[^,]+,/, ""), "base64");
+    if (buf.length > 20 * 1024 * 1024) return reply.code(413).send({ error: "ไฟล์ใหญ่เกิน 20 MB" });
+    let result: ReturnType<typeof importSheet>;
+    try {
+      result = importSheet(filename, buf);
+    } catch (e) {
+      return reply.code(422).send({ error: (e as Error).message });
+    }
+    const bySku = new Map(store.list("products").map((p) => [p.sku, p.id]));
+    return { ...result, products: result.products.map((p) => ({ ...p, existingId: bySku.get(p.sku) ?? null })) };
+  });
+  app.post("/api/products/import-file/apply", async (req) => {
+    const { products } = parse(z.object({ products: z.array(productInput.omit({ imageUrl: true }).extend({ imageUrl: z.string().url().optional() })).min(1).max(500) }), req.body);
+    // Keep each photo inside the app: exported image links are signed and stop working after a while.
+    const keepPhoto = async (url?: string) => {
+      if (!url) return undefined;
+      try {
+        const { res, buf } = await fetchPage(new URL(url), "image/*", 5 * 1024 * 1024);
+        const ext = IMAGE_EXT[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
+        return res.ok && ext ? saveUpload(buf, ext) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    let added = 0;
+    let updated = 0;
+    for (const p of products) {
+      const existing = store.list("products").find((x) => x.sku === p.sku);
+      if (existing) {
+        // Prices and stock follow the shop; the seller's own selling points and photo stay.
+        store.update("products", existing.id, { name: p.name, price: p.price, compareAtPrice: p.compareAtPrice, stock: p.stock, ...(existing.imageUrl ? {} : { imageUrl: await keepPhoto(p.imageUrl) }) } as never);
+        updated++;
+      } else {
+        store.insert("products", { id: newId("prod"), ...p, imageUrl: await keepPhoto(p.imageUrl) } as never);
+        added++;
+      }
+    }
+    return { added, updated };
   });
 
   // Registered before the CRUD routes so "generate" is not read as a script id.

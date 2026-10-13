@@ -1,5 +1,5 @@
 import type { Product, ProductQa, Promotion } from "@tlai/shared";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import { ImageUpload } from "../lib/ImageUpload";
 import { useData } from "../lib/useData";
@@ -159,6 +159,7 @@ export function CatalogPage() {
       </div>
 
       <div>
+      <ShopFileImport onDone={reload} />
       <div className="form card import-card">
         <h2>เพิ่มสินค้าจากลิงก์หรือข้อความ</h2>
         <textarea
@@ -172,7 +173,7 @@ export function CatalogPage() {
         {imp.msg && <div className="msg">{imp.msg}</div>}
         {imp.warnings.length > 0 && <ul className="warn-list">{imp.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
         <p className="note">
-          ลิงก์เว็บร้านทั่วไปอ่านได้จากข้อมูลตัวอย่างสินค้าที่เว็บเปิดให้ (ชื่อ ราคา รูป รายละเอียด) ส่วนลิงก์ TikTok ระบบไม่เปิดอ่าน เพราะ TikTok ไม่อนุญาต ให้คัดลอกข้อความสินค้ามาวางแทน
+          ลิงก์เว็บร้านทั่วไปอ่านได้จากข้อมูลตัวอย่างสินค้าที่เว็บเปิดให้ (ชื่อ ราคา รูป รายละเอียด) ส่วนลิงก์ TikTok ระบบไม่เปิดอ่าน เพราะ TikTok ไม่อนุญาต ให้ใช้ "นำเข้าสินค้าทั้งร้านจาก TikTok Shop" ด้านบน หรือคัดลอกข้อความสินค้ามาวางแทน
           ราคาที่ใช้ต้องมีอยู่ในข้อมูลต้นทางเท่านั้น และจุดขายที่อาจผิดกฎโฆษณาจะถูกตัดออก
         </p>
       </div>
@@ -221,6 +222,104 @@ export function CatalogPage() {
         </div>
       </div>
       </div>
+    </div>
+  );
+}
+
+type SheetProduct = { sku: string; name: string; description: string; price: number; compareAtPrice?: number; stock: number; category: string; imageUrl?: string; specs: Record<string, string>; existingId: string | null };
+
+/** The whole shop at once: the product file exported from TikTok Shop Seller Center → preview → add or update by SKU. */
+function ShopFileImport({ onDone }: { onDone: () => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<SheetProduct[]>([]);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const pick = async (file: File) => {
+    setMsg("");
+    setRows([]);
+    setWarnings([]);
+    if (file.size > 20 * 1024 * 1024) return setMsg("⚠ ไฟล์ใหญ่เกิน 20 MB");
+    setBusy(true);
+    try {
+      const dataBase64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      const r = await api<{ products: SheetProduct[]; warnings: string[] }>("/products/import-file", { body: { filename: file.name, dataBase64 } });
+      setRows(r.products);
+      setPicked(new Set(r.products.map((_, i) => i)));
+      setWarnings(r.warnings);
+    } catch (e) {
+      setMsg(`⚠ ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const products = rows.filter((_, i) => picked.has(i)).map(({ existingId: _, ...p }) => p);
+      const r = await api<{ added: number; updated: number }>("/products/import-file/apply", { body: { products } });
+      setRows([]);
+      setWarnings([]);
+      setMsg(`เพิ่มสินค้าใหม่ ${r.added} รายการ อัปเดตราคาและสต็อก ${r.updated} รายการ ตรวจรายละเอียดและเพิ่มจุดขายของแต่ละสินค้าก่อนไลฟ์`);
+      onDone();
+    } catch (e) {
+      setMsg(`⚠ ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = (i: number) => setPicked((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+
+  return (
+    <div className="form card import-card">
+      <h2>นำเข้าสินค้าทั้งร้านจาก TikTok Shop</h2>
+      <p className="note">
+        ใน TikTok Shop Seller Center ไปที่ สินค้า → จัดการสินค้า แล้วกด "ส่งออก" (Export) ได้ไฟล์ Excel มาแล้วเลือกไฟล์นั้นที่นี่
+        ราคาและสต็อกมาจากไฟล์ตรง ๆ สินค้าที่มี SKU ตรงกับที่มีอยู่แล้วจะอัปเดตแค่ชื่อ ราคา และสต็อก จุดขายที่เขียนไว้ยังอยู่ครบ
+      </p>
+      <div className="row">
+        <button className="primary" disabled={busy} onClick={() => input.current?.click()}>{busy ? "กำลังอ่านไฟล์…" : "เลือกไฟล์ Excel (.xlsx) หรือ .csv"}</button>
+      </div>
+      <input ref={input} type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />
+      {msg && <div className="msg">{msg}</div>}
+      {warnings.length > 0 && <ul className="warn-list">{warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+      {rows.length > 0 && (
+        <>
+          <table className="sheet-preview">
+            <thead>
+              <tr>
+                <th><input type="checkbox" checked={picked.size === rows.length} onChange={(e) => setPicked(e.target.checked ? new Set(rows.map((_, i) => i)) : new Set())} /></th>
+                <th>ชื่อ</th><th>ราคา</th><th>สต็อก</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p, i) => (
+                <tr key={i}>
+                  <td><input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} /></td>
+                  <td>{p.name}{p.specs["ตัวเลือก"] && <small className="muted"> · {p.specs["ตัวเลือก"]}</small>}</td>
+                  <td>{p.price}{p.compareAtPrice ? <s> {p.compareAtPrice}</s> : null}</td>
+                  <td>{p.stock}</td>
+                  <td><small className="muted">{p.existingId ? "อัปเดต" : "ใหม่"}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="row">
+            <button className="primary" disabled={busy || picked.size === 0} onClick={apply}>{busy ? "กำลังบันทึก…" : `นำเข้า ${picked.size} สินค้า`}</button>
+            <button disabled={busy} onClick={() => setRows([])}>ยกเลิก</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
