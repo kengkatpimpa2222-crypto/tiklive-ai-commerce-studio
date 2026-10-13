@@ -210,7 +210,8 @@ export class HostBrain {
     // Shop questions (shipping, payment, returns) are answered from the FAQ unless the viewer asks about product facts.
     const faqOnly = faq && !PRODUCT_FACT_QUESTION.test(question);
     const template = own ? matchParticle(own.answer, c) : faqOnly ? matchParticle(faq.answer, c) : this.answerTemplate(question, product, ctx);
-    if (!this.llm) return this.guard(template, "template", ctx, product, template);
+    // Quick replies: the shop's own words, at once, with no AI round trip.
+    if (!this.llm || (faqOnly && !own && faq.instant !== false)) return this.guard(template, "template", ctx, product, template);
     const facts = [
       ...(product ? [product] : ctx.products).map((p) => productFacts(p, ctx.promotions, ctx.products)),
       ...(ctx.faqs ?? []).map((f) => `ข้อมูลร้าน (${f.topic}): ${f.answer}`),

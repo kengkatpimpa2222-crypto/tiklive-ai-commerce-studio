@@ -10,7 +10,7 @@ export function ShopPage() {
   const [faqs, reloadFaqs] = useData<FaqEntry[]>("/faqs", []);
   const [settings] = useData<StudioSettings | null>("/settings", null);
   const [stage, setStage] = useState<Stage | null>(null);
-  const [draft, setDraft] = useState({ id: "", topic: "", keywords: "", answer: "" });
+  const [draft, setDraft] = useState({ id: "", topic: "", keywords: "", answer: "", instant: true });
   const [msg, setMsg] = useState("");
   const timer = useRef<number>();
 
@@ -29,10 +29,10 @@ export function ShopPage() {
   };
 
   const saveFaq = async () => {
-    const body = { topic: draft.topic, answer: draft.answer, keywords: draft.keywords.split(/[,\n]/).map((k) => k.trim()).filter(Boolean) };
+    const body = { topic: draft.topic, answer: draft.answer, instant: draft.instant, keywords: draft.keywords.split(/[,\n]/).map((k) => k.trim()).filter(Boolean) };
     try {
       await api(draft.id ? `/faqs/${draft.id}` : "/faqs", { method: draft.id ? "PATCH" : "POST", body });
-      setDraft({ id: "", topic: "", keywords: "", answer: "" });
+      setDraft({ id: "", topic: "", keywords: "", answer: "", instant: true });
       setMsg("บันทึกคำตอบร้านแล้ว");
       reloadFaqs();
     } catch (e) {
@@ -56,10 +56,10 @@ export function ShopPage() {
             {faqs.map((f) => (
               <tr key={f.id}>
                 <td><b>{f.topic}</b></td>
-                <td className="muted">{f.keywords.join(", ")}</td>
+                <td className="muted">{f.keywords.join(", ")}{f.instant !== false && <span className="chip-code">ตอบด่วน</span>}</td>
                 <td>{f.answer}</td>
                 <td>
-                  <button onClick={() => setDraft({ id: f.id, topic: f.topic, keywords: f.keywords.join(", "), answer: f.answer })}>แก้ไข</button>
+                  <button onClick={() => setDraft({ id: f.id, topic: f.topic, keywords: f.keywords.join(", "), answer: f.answer, instant: f.instant !== false })}>แก้ไข</button>
                   <button onClick={() => api(`/faqs/${f.id}`, { method: "DELETE" }).then(reloadFaqs)}>ลบ</button>
                 </td>
               </tr>
@@ -71,9 +71,12 @@ export function ShopPage() {
           <input placeholder="หัวข้อ เช่น การจัดส่ง" value={draft.topic} onChange={(e) => setDraft({ ...draft, topic: e.target.value })} />
           <input placeholder="คำสำคัญ คั่นด้วยจุลภาค เช่น ส่ง, กี่วัน, ขนส่ง" value={draft.keywords} onChange={(e) => setDraft({ ...draft, keywords: e.target.value })} />
           <textarea placeholder="คำตอบที่ให้ AI พูด" value={draft.answer} onChange={(e) => setDraft({ ...draft, answer: e.target.value })} />
+          <label className="inline">
+            <input type="checkbox" checked={draft.instant} onChange={(e) => setDraft({ ...draft, instant: e.target.checked })} /> ตอบด่วน: พูดคำตอบนี้ทันทีตามที่เขียน ไม่ต้องรอ AI เรียบเรียง
+          </label>
           <div className="row">
             <button className="primary" disabled={!draft.topic || !draft.keywords || !draft.answer} onClick={saveFaq}>บันทึก</button>
-            {draft.id && <button onClick={() => setDraft({ id: "", topic: "", keywords: "", answer: "" })}>ยกเลิก</button>}
+            {draft.id && <button onClick={() => setDraft({ id: "", topic: "", keywords: "", answer: "", instant: true })}>ยกเลิก</button>}
             {msg && <span className="msg">{msg}</span>}
           </div>
         </div>

@@ -104,7 +104,7 @@ describe("HostBrain (LLM guarded)", () => {
   it("words promos and shop FAQ answers itself, and falls back when the AI fails", async () => {
     const llm: LlmProvider = { id: "fake", complete: async () => "ตอนนี้ซื้อครบ 2 ขวดส่งฟรีเลยค่ะ ดูเงื่อนไขที่ตะกร้านะคะ" };
     expect((await new HostBrain(llm).promo(promo, ctx)).via).toBe("llm");
-    const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ส่งภายใน 1-2 วันค่ะ" }];
+    const faqs = [{ id: "f1", topic: "การจัดส่ง", keywords: ["ส่ง"], answer: "ส่งภายใน 1-2 วันค่ะ", instant: false }];
     expect((await new HostBrain(llm).answer("ส่งกี่วันคะ", { ...ctx, faqs })).via).toBe("llm");
     const down: LlmProvider = { id: "down", complete: async () => Promise.reject(new Error("x")) };
     const out = await new HostBrain(down).answer("ส่งกี่วันคะ", { ...ctx, faqs });
@@ -303,5 +303,21 @@ describe("discount codes", () => {
   it("reads the code with the promotion", async () => {
     const out = await new HostBrain().promo({ ...promo, code: "LIVE20" }, ctx);
     expect(out.text).toContain("LIVE20");
+  });
+});
+
+describe("quick replies", () => {
+  const faqs = [{ id: "f1", topic: "ส่ง", keywords: ["ส่ง", "กี่วัน"], answer: "ส่งภายใน 1-2 วันค่ะ" }];
+  it("answers shop questions word for word without calling the AI", async () => {
+    let calls = 0;
+    const llm: LlmProvider = { id: "fake", complete: async () => (calls++, "ข้อความจาก AI ค่ะ") };
+    const out = await new HostBrain(llm).answer("ส่งกี่วันคะ", { ...ctx, faqs });
+    expect(out.text).toBe("ส่งภายใน 1-2 วันค่ะ");
+    expect(calls).toBe(0);
+  });
+  it("lets the AI reword when quick reply is turned off", async () => {
+    const llm: LlmProvider = { id: "fake", complete: async () => "จัดส่งภายใน 1-2 วันเลยค่ะ" };
+    const out = await new HostBrain(llm).answer("ส่งกี่วันคะ", { ...ctx, faqs: [{ ...faqs[0]!, instant: false }] });
+    expect(out.via).toBe("llm");
   });
 });

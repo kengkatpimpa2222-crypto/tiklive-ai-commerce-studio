@@ -123,6 +123,7 @@ export const faqInput = z.object({
   topic: z.string().min(1),
   keywords: z.array(z.string().min(1)).min(1),
   answer: z.string().min(1).max(400),
+  instant: z.boolean().default(true),
 });
 
 export const scheduleInput = z.object({

@@ -68,6 +68,8 @@ export interface FaqEntry {
   /** Words that point a viewer question at this entry, e.g. ["ส่ง", "กี่วัน"]. */
   keywords: string[];
   answer: string;
+  /** Say the answer word for word straight away, without waiting for the AI to reword it (default on). */
+  instant?: boolean;
 }
 
 /** A LIVE the autopilot starts by itself on chosen days, e.g. every day 20:00 for 2 hours. */
