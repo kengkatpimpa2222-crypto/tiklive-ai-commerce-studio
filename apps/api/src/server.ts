@@ -386,7 +386,10 @@ export async function buildServer(opts: ServerOptions): Promise<{ app: FastifyIn
     const keepPhoto = async (url?: string) => {
       if (!url) return undefined;
       try {
-        const { res, buf } = await fetchPage(new URL(url), "image/*", 5 * 1024 * 1024);
+        const u = new URL(url);
+        // Image files only: never open TikTok's own pages.
+        if (!/^https?:$/.test(u.protocol) || BLOCKED_IMPORT_HOSTS.test(u.hostname)) return undefined;
+        const { res, buf } = await fetchPage(u, "image/*", 5 * 1024 * 1024);
         const ext = IMAGE_EXT[(res.headers.get("content-type") ?? "").split(";")[0]!.trim()];
         return res.ok && ext ? saveUpload(buf, ext) : undefined;
       } catch {
